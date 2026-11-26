@@ -1,0 +1,24 @@
+{
+  "name": "eurociv",
+  "version": "0.1.0",
+  "description": "欧罗巴策略地图:用 Eurostat 等公开数据把真实欧洲画成 4X 策略游戏风格的六边形地图",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "fetch": "node pipeline/fetch.mjs",
+    "grid": "node pipeline/grid.mjs",
+    "elev": "node pipeline/elev.mjs",
+    "build": "node pipeline/build.mjs",
+    "check": "node pipeline/check.mjs",
+    "all": "node pipeline/fetch.mjs && node pipeline/grid.mjs && node pipeline/elev.mjs && node pipeline/build.mjs && node pipeline/check.mjs",
+    "serve": "node pipeline/serve.mjs",
+    "pack-skill": "node pipeline/pack-skill.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "opencc-js": "^1.0.5"
+  }
+}

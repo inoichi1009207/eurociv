@@ -1,0 +1,11 @@
+{
+  "name": "eurociv",
+  "owner": { "name": "eurociv contributors" },
+  "plugins": [
+    {
+      "name": "real-data-4x-map",
+      "source": "./",
+      "description": "把任意地区的真实公开数据做成 4X 策略游戏风格的六边形交互地图(附欧洲参考实现)"
+    }
+  ]
+}

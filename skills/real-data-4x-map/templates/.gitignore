@@ -1,0 +1,5 @@
+raw/
+*.log
+node_modules/
+.DS_Store
+clipboard/

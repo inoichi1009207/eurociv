@@ -1,0 +1,7 @@
+{
+  "name": "real-data-4x-map",
+  "version": "0.1.0",
+  "description": "把任意地区的真实公开数据做成 4X 策略游戏风格的六边形交互地图(附欧洲参考实现)",
+  "license": "MIT",
+  "keywords": ["map", "hex", "open-data", "eurostat", "visualization", "地图", "数据可视化"]
+}
