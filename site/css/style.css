@@ -94,8 +94,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 @media (max-width: 720px) {
   #topbar { height: auto; flex-wrap: wrap; padding: 6px 10px; gap: 6px; }
+  .brand > span:last-child, .spacer { display: none; }
   .yields { order: 5; width: 100%; font-size: 12px; }
-  .search input { width: 130px; }
+  .search { flex: 1; min-width: 0; }
+  .search input { width: 100%; }
+  .search-results { width: calc(100vw - 20px); right: auto; left: 0; }
+  .btn { padding: 4px 7px; }
+  .ygrid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .ygrid div { font-size: 11px; padding: 5px 1px; }
+  .ygrid b { font-size: 12px; overflow-wrap: anywhere; }
   .side { top: auto; bottom: 0; right: 0; left: 0; width: auto; max-height: 55vh; border-radius: 14px 14px 0 0; }
   .dock { width: 150px; max-height: 40vh; bottom: 22px; left: 8px; }
   .dock.collapsed #lens-list { display: none; }
