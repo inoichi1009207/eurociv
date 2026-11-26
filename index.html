@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>欧罗巴策略地图</title>
+  <meta name="description" content="用 Eurostat 等公开数据,把真实的欧洲画成 4X 策略游戏地图:六边形地形、城市产出、区域、奇观与透镜。">
+  <meta name="theme-color" content="#121a26">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpolygon points='32,2 58,17 58,47 32,62 6,47 6,17' fill='%23c9a45c'/%3E%3Cpolygon points='32,9 52,21 52,43 32,55 12,43 12,21' fill='%232a4d8f'/%3E%3Ctext x='32' y='42' font-size='26' text-anchor='middle' fill='%23f8f0d8'%3E%E2%98%85%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand"><span class="emblem">★</span><span>欧罗巴</span></div>
+    <div id="yields" class="yields" aria-label="全域产出"></div>
+    <div class="spacer"></div>
+    <div class="search">
+      <input id="search" type="search" placeholder="搜索城市或地区(/)" autocomplete="off" spellcheck="false" aria-label="搜索城市或地区">
+      <div id="search-results" class="panel search-results" hidden></div>
+    </div>
+    <button id="btn-share" class="btn" title="分享当前视图">分享</button>
+    <button id="btn-pedia" class="btn" title="每个数字的含义与出处">百科</button>
+    <button id="btn-help" class="btn icon" title="操作说明">?</button>
+  </header>
+
+  <canvas id="map" aria-label="欧洲六边形策略地图"></canvas>
+  <div id="tooltip" class="tooltip" hidden></div>
+  <aside id="panel" class="panel side" hidden></aside>
+
+  <div id="lens-dock" class="panel dock">
+    <div class="dock-title">透镜</div>
+    <div id="lens-list"></div>
+  </div>
+  <div id="legend" class="panel legend" hidden></div>
+  <div id="toggles" class="panel toggles"></div>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card panel">
+      <button class="close" data-close aria-label="关闭">✕</button>
+      <nav id="modal-nav"></nav>
+      <article id="modal-body"></article>
+    </div>
+  </div>
+  <div class="attrib">© EuroGeographics for the administrative boundaries · 数据:Eurostat、NOAA ETOPO1、Natural Earth、维基数据 · 非官方 · 非商业</div>
+  <div id="toast" class="toast" hidden></div>
+  <div id="loading">正在勘测大陆…</div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
