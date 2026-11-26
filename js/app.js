@@ -395,6 +395,7 @@ function readHash() {
   const v = p.get("v")?.split(",").map(Number);
   if (v?.length === 3 && v.every(isFinite)) { view.cx = v[0]; view.cy = v[1]; view.s = v[2]; clampView(); }
   if (p.get("lens")) setLens(p.get("lens"));
+  if (p.get("pedia") && PAGES[p.get("pedia")]) openModal(p.get("pedia")); // 可直接分享百科某页
   if (p.get("city") && cityById.has(p.get("city"))) openCity(p.get("city"));
   else if (p.get("region")) { const id = p.get("region"); const k3 = regions.r3.findIndex((r) => r.id === id); if (k3 >= 0) openRegion("r3", k3); else { const k2 = regions.r2.findIndex((r) => r.id === id); if (k2 >= 0) openRegion("r2", k2); } }
 }
