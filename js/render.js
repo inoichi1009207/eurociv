@@ -242,44 +242,63 @@ export function createRenderer(canvas, W, H) {
       ctx.stroke(edgePath((i, j) => A[i] === index && (j < 0 || A[j] !== index || !land(j))));
     }
 
-    // 5) 物件:奇观 > 电厂 > 机场/港口 > 矿产 > 农业资源;同格一件,互相避让
+    // 5) 物件:先把每座可见城市的楼群登记成「占位框」,物件与旗标都不许压上去
     hits = [];
+    const TOP = [0.6, 0.72, 0.95, 1.2, 1.55]; // 楼群顶部离格心的高度(×格半径),与 sprites.js 的楼高一致
+    const clusters = [];
+    if (rpx >= 4) for (const c of cityByCell.values()) {
+      if (c.cell < 0) continue;
+      const [gx, gy] = H.center(c.cell); const x = X(gx), y = Y(gy);
+      if (x < -rpx * 3 || y < -rpx * 3 || x > vw + rpx * 3 || y > vh + rpx * 3) continue;
+      const t = cityTier(c.pop);
+      clusters.push({ id: c.id, pop: c.pop, tier: t, x, y, rect: [x - rpx * 0.82, y - rpx * TOP[t], rpx * 1.64, rpx * (TOP[t] + 0.62)] });
+    }
+    const hit = (a, b, pad = 2) => a[0] < b[0] + b[2] + pad && a[0] + a[2] + pad > b[0] && a[1] < b[1] + b[3] + pad && a[1] + a[3] + pad > b[1];
     const dots = [];
-    const free = (x, y, r) => !dots.some(([a, b, rr]) => Math.hypot(a - x, b - y) < r + rr);
+    const free = (x, y, r) => !dots.some(([a, b, rr]) => Math.hypot(a - x, b - y) < r + rr) && !clusters.some((c) => hit([x - r, y - r, r * 2, r * 2], c.rect, -2));
+    const plates = []; // 奇观名牌
     const put = (type, gx, gy, sz, info, offset = [0.38, 0.3]) => {
       const cl = H.locate(gx, gy);
-      if (cityByCell.has(cl)) { // 城市格:楼群居中,机场/港口/奇观挪到格子角上,其余设施不画
-        if (type === "airport") offset = [0.62, 0.55]; else if (type === "port") offset = [-0.66, -0.2]; else if (type.startsWith("wonder")) offset = [-0.62, 0.6]; else return;
+      if (cityByCell.has(cl)) { // 城市格:机场/港口/奇观挪到格子角上,其余设施不画
+        if (type === "airport") offset = [0.7, 0.62]; else if (type === "port") offset = [-0.72, 0.1]; else if (type.startsWith("wonder")) offset = [-0.66, 0.66]; else return false;
       }
       const [hx, hy] = H.center(cl);
       const x = X(hx) + rpx * offset[0], y = Y(hy) + rpx * offset[1];
-      if (x < -40 || y < -40 || x > vw + 40 || y > vh + 40 || !free(x, y, sz * 0.5)) return;
+      if (x < -40 || y < -40 || x > vw + 40 || y > vh + 40) return false;
+      if (!dots.every(([a, b, rr]) => Math.hypot(a - x, b - y) >= sz * 0.45 + rr)) return false;
+      if (!cityByCell.has(cl) && clusters.some((c) => hit([x - sz * 0.4, y - sz * 0.4, sz * 0.8, sz * 0.8], c.rect, -2))) return false;
       const sp = sprite(type, 0, sz); const k = sz / sp.u;
       ctx.drawImage(sp, x - (sp.width * k) / 2, y - (sp.height * k) / 2, sp.width * k, sp.height * k);
-      dots.push([x, y, sz * 0.5]); hits.push({ x, y, r: sz * 0.6, info });
+      dots.push([x, y, sz * 0.45]); hits.push({ x, y, r: sz * 0.6, info });
+      return [x, y];
     };
     const medal = (emoji, gx, gy, info) => {
       const [hx, hy] = H.center(H.locate(gx, gy));
-      const x = X(hx) - rpx * 0.32, y = Y(hy) + rpx * 0.36, r = Math.min(16, Math.max(8, rpx * 0.24));
-      if (x < -20 || y < -20 || x > vw + 20 || y > vh + 20 || !free(x, y, r)) return;
+      const r = Math.min(14, Math.max(8, rpx * 0.2)), x = X(hx) - rpx * 0.34, y = Y(hy) + rpx * 0.4;
+      if (x < -20 || y < -20 || x > vw + 20 || y > vh + 20 || !free(x, y, r * 1.6)) return;
       const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.2, x, y, r);
       g.addColorStop(0, "#fff7df"); g.addColorStop(1, "#c9a45c");
       ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.arc(x + 1, y + 1.5, r, 0, 7); ctx.fill();
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
       ctx.strokeStyle = "#6b5326"; ctx.lineWidth = 1.2; ctx.stroke();
       ctx.font = `${r * 1.15}px ${EMOJI}`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#000"; ctx.fillText(emoji, x, y + 1);
-      dots.push([x, y, r]); hits.push({ x, y, r, info });
+      dots.push([x, y, r * 1.6]); hits.push({ x, y, r, info });
     };
     if (!lens || rpx >= 10) {
-      const wz = (w) => (w.tier === 1 && rpx >= 5) || (w.tier === 2 && rpx >= 10) || rpx >= 18;
-      if (opts.wonders) for (const w of places.wonders) if (wz(w)) put(w.natural ? "wonderNatural" : "wonder", w.x, w.y, Math.min(34, Math.max(12, rpx * (w.tier === 1 ? 0.85 : 0.7))), { t: "wonder", d: w }, [0.35, -0.05]);
+      // 奇观:大奇观远看就有,放大后配名牌;二三档要更近才出现
+      const wz = (w) => (w.tier === 1 && rpx >= 5) || (w.tier === 2 && rpx >= 14) || rpx >= 24;
+      if (opts.wonders) for (const w of places.wonders) {
+        if (!wz(w)) continue;
+        const p = put(w.natural ? "wonderNatural" : "wonder", w.x, w.y, Math.min(40, Math.max(13, rpx * (w.tier === 1 ? 0.95 : 0.75))), { t: "wonder", d: w }, [0.36, -0.05]);
+        if (p && ((w.tier === 1 && rpx >= 14) || rpx >= 40)) plates.push({ x: p[0], y: p[1] + Math.min(40, Math.max(13, rpx * 0.95)) * 0.62, name: w.name, w });
+      }
       if (opts.resources) {
-        const pmin = rpx >= 16 ? 0 : rpx >= 10 ? 600 : rpx >= 6 ? 1500 : Infinity;
-        for (const p of features.power) if (p.mw >= pmin) put(p.kind, p.x, p.y, Math.min(30, Math.max(11, rpx * 0.7)), { t: "power", d: p });
-        if (rpx >= 7) for (const a of features.airports) if (a.rank <= (rpx >= 12 ? 9 : 5)) put("airport", a.x, a.y, Math.min(30, Math.max(11, rpx * 0.7)), { t: "airport", d: a }, [-0.3, -0.25]);
-        if (rpx >= 13) for (const p of features.ports) put("port", p.x, p.y, Math.min(28, rpx * 0.6), { t: "port", d: p }, [-0.35, 0.3]);
-        if (rpx >= 11) for (const m of features.mines) medal(RES_ICON[m.kind] || "⛏️", m.x, m.y, { t: "mine", d: m });
-        if (rpx >= 11) for (const a of features.agri) medal(RES_ICON[a.kind], a.x, a.y, { t: "agri", d: a });
+        const pmin = (kind) => (kind === "wind" || kind === "solar" ? (rpx >= 28 ? 0 : rpx >= 16 ? 300 : Infinity) : rpx >= 22 ? 0 : rpx >= 14 ? 400 : rpx >= 9 ? 1000 : rpx >= 6 ? 2000 : Infinity);
+        for (const p of features.power) if (p.mw >= pmin(p.kind)) put(p.kind, p.x, p.y, Math.min(32, Math.max(12, rpx * 0.7)), { t: "power", d: p });
+        if (rpx >= 7) for (const a of features.airports) if (a.rank <= (rpx >= 12 ? 9 : 5)) put("airport", a.x, a.y, Math.min(32, Math.max(12, rpx * 0.72)), { t: "airport", d: a }, [-0.3, -0.25]);
+        if (rpx >= 13) for (const p of features.ports) put("port", p.x, p.y, Math.min(30, rpx * 0.6), { t: "port", d: p }, [-0.35, 0.3]);
+        if (rpx >= 16) for (const m of features.mines) medal(RES_ICON[m.kind] || "⛏️", m.x, m.y, { t: "mine", d: m });
+        if (rpx >= 20) for (const a of features.agri) medal(RES_ICON[a.kind], a.x, a.y, { t: "agri", d: a });
       }
     }
 
@@ -308,44 +327,64 @@ export function createRenderer(canvas, W, H) {
     vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(5,10,20,.4)");
     ctx.fillStyle = vg; ctx.fillRect(0, 0, vw, vh);
 
-    // 8) 城市旗标:上方标签带(学院城/工业城…)+ 人口牌 + 名字 + 特色图标;放大后第二行显示五项产出
-    const minPop = rpx >= 20 ? 0 : rpx >= 13 ? 180000 : rpx >= 8 ? 350000 : rpx >= 5 ? 800000 : 1500000;
+    // 8) 奇观名牌(在旗标之前画,旗标可以盖住它们)
     const taken = [];
-    const showYields = rpx >= 11;
+    for (const P of plates) {
+      const fs = Math.max(10, Math.min(14, rpx * 0.2));
+      ctx.font = `700 ${fs}px ${SERIF}`;
+      const name = P.name.length > 10 ? P.name.slice(0, 9) + "…" : P.name;
+      const w = ctx.measureText(name).width + 14, h = fs + 8, rect = [P.x - w / 2, P.y, w, h];
+      if (taken.some((t) => hit(rect, t)) || clusters.some((c) => hit(rect, c.rect, -4))) continue;
+      taken.push(rect);
+      ctx.fillStyle = "rgba(20,24,32,.92)"; roundRect(ctx, rect[0], rect[1], w, h, 4); ctx.fill();
+      ctx.strokeStyle = "#b8934e"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = "#f3e6c4"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(name, P.x, P.y + h / 2 + 0.5);
+      hits.push({ rect, info: { t: "wonder", d: P.w } });
+    }
+
+    // 9) 城市旗标:按人口从大到小;旗标锚在自家楼群上方,不许盖住别的城市楼群或已有旗标;
+    //    放不下就退成楼群下方的小地名,再放不下就不标
+    const minPop = rpx >= 40 ? 0 : rpx >= 24 ? 180000 : rpx >= 14 ? 300000 : rpx >= 8 ? 600000 : rpx >= 5 ? 1200000 : 2000000;
     const fmtK = (v, gold) => (v == null ? "—" : gold ? (v >= 1e5 ? (v / 1e4).toFixed(1) + "万亿" : Math.round(v / 100) + "亿") : v >= 10 ? (v / 10).toFixed(v >= 100 ? 0 : 1) + "万" : Math.round(v * 1000) + "");
+    const clusterOf = new Map(clusters.map((c) => [c.id, c]));
+    const smallLabels = [];
     for (const c of cities) {
-      if (!(c.capital || c.pop >= minPop)) continue;
       const tier = cityTier(c.pop);
-      const fsz = [12, 12, 13, 14, 15][tier] + (rpx >= 14 ? 1 : 0);
-      const x = X(c.x), y0 = Y(c.y) - Math.max(12, rpx * (tier >= 3 ? 1.3 : tier >= 2 ? 1.1 : 1.0)) - (showYields ? fsz * 0.7 : 0); // 大城市楼更高,旗标抬高
-      if (x < -160 || y0 < -50 || x > vw + 160 || y0 > vh + 50) continue;
-      const tag = rpx >= 8 ? cityTag(c) : null;
+      const own = clusterOf.get(c.id);
+      const [cxp, cyp] = [X(c.x), Y(c.y)];
+      if (cxp < -200 || cyp < -120 || cxp > vw + 200 || cyp > vh + 160) continue;
+      if (!(c.capital || c.pop >= minPop)) { if (own && rpx >= 30) smallLabels.push(c); continue; }
+      const fsz = [12, 12, 13, 14, 16][tier] + (rpx >= 30 ? 1 : 0);
+      const showYields = (rpx >= 16 && tier >= 1) || rpx >= 30;
+      const tag = rpx >= 10 ? cityTag(c) : null;
       const popTxt = Math.round(c.pop / 1e4) + "万";
-      ctx.font = `700 ${fsz}px ${SERIF}`; const tw = ctx.measureText(c.name).width;
+      ctx.font = `700 ${fsz}px ${SERIF}`; const tw = ctx.measureText((c.capital ? "★ " : "") + c.name).width;
       ctx.font = `700 ${fsz - 1}px ${SERIF}`; const pw = ctx.measureText(popTxt).width + 14;
       const iw = fsz + 8;
       const r = regions.r3[c.r3];
       const yl = showYields && r ? [["🌾", r.yields.food], ["⚙️", r.yields.production], ["💰", r.yields.gold, true], ["🔬", r.yields.science], ["🎭", r.yields.culture]].filter((y) => y[1] != null).map(([ic, v, gold]) => [ic, fmtK(v, gold)]) : null;
       let yw = 0;
       if (yl) { ctx.font = `600 ${fsz - 3}px ${SERIF}`; yw = yl.reduce((s2, [, v]) => s2 + ctx.measureText(v).width + fsz + 6, 8); }
-      const bw = Math.max(tw + pw + iw + 22, yw), bh = fsz + 11;
-      const left = x - bw / 2, top = y0 - bh / 2;
-      const full = [left, top - (tag ? fsz * 0.75 : 0), bw, bh + (tag ? fsz * 0.75 : 0) + (yl ? fsz + 6 : 0)];
-      if (taken.some((t) => full[0] < t[0] + t[2] + 3 && full[0] + full[2] + 3 > t[0] && full[1] < t[1] + t[3] + 2 && full[1] + full[3] + 2 > t[1])) continue;
+      const bw = Math.max(tw + pw + iw + 24, yw), bh = fsz + 11, yh = yl ? fsz + 5 : 0, th = tag ? fsz * 0.8 : 0;
+      // 锚点:整块旗标(标签带 + 主条 + 产出行)的底边贴在自家楼群顶上方
+      const bottom = own ? own.rect[1] - 2 : cyp - Math.max(12, rpx * 0.9);
+      const top = bottom - yh - bh, left = cxp - bw / 2;
+      const full = [left, top - th, bw, th + bh + yh];
+      // 只避让「比自己大」的城市楼群与已挂旗标;小城镇的楼可以被大城市旗标盖住
+      const blocked = taken.some((t) => hit(full, t)) || clusters.some((k) => k.id !== c.id && k.pop > c.pop && hit(full, k.rect, -3));
+      if (blocked) { if (own && rpx >= 30) smallLabels.push(c); continue; }
       taken.push(full);
       const ci = world.countries.findIndex((k) => k.code === c.cntr);
       const col = ci >= 0 ? countryColor[ci] : "#888";
       const sel = opts.selCity === c.id;
-      // 标签带
-      if (tag) {
+      if (tag) { // 标签带
         ctx.font = `700 ${Math.max(9, fsz - 4)}px ${SERIF}`;
-        const label = DISTRICT_TAG[tag], lw = ctx.measureText(label).width + 16, lh = fsz * 0.85;
-        ctx.fillStyle = tag === "gov" ? "#8a2f2f" : "#2d4d86"; roundRect(ctx, x - lw / 2, top - lh + 3, lw, lh, 3); ctx.fill();
+        const label = DISTRICT_TAG[tag], lw = ctx.measureText(label).width + 16;
+        ctx.fillStyle = tag === "gov" ? "#8a2f2f" : "#2d4d86"; roundRect(ctx, cxp - lw / 2, top - th + 2, lw, th, 3); ctx.fill();
         ctx.strokeStyle = "rgba(230,200,130,.8)"; ctx.lineWidth = 1; ctx.stroke();
-        ctx.fillStyle = "#f6e7bf"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(label, x, top - lh / 2 + 3);
+        ctx.fillStyle = "#f6e7bf"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(label, cxp, top - th / 2 + 2);
       }
-      // 主条
-      const gr = ctx.createLinearGradient(0, top, 0, top + bh);
+      const gr = ctx.createLinearGradient(0, top, 0, top + bh); // 主条
       gr.addColorStop(0, "#2b3446"); gr.addColorStop(1, "#121722");
       ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 5; ctx.shadowOffsetY = 2;
       ctx.fillStyle = gr; roundRect(ctx, left, top, bw, bh, 5); ctx.fill(); ctx.shadowColor = "transparent";
@@ -355,22 +394,33 @@ export function createRenderer(canvas, W, H) {
       ctx.fillStyle = pg; ctx.beginPath(); ctx.moveTo(left + 3, top + 3); ctx.lineTo(left + pw, top + 3); ctx.lineTo(left + pw + 6, top + bh / 2); ctx.lineTo(left + pw, top + bh - 3); ctx.lineTo(left + 3, top + bh - 3); ctx.closePath(); ctx.fill();
       ctx.textBaseline = "middle"; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = `700 ${fsz - 1}px ${SERIF}`; ctx.fillText(popTxt, left + 3 + (pw - 3) / 2, top + bh / 2 + 0.5);
       ctx.fillStyle = "#f5e7c4"; ctx.font = `700 ${fsz}px ${SERIF}`; ctx.fillText((c.capital ? "★ " : "") + c.name, left + pw + 6 + (bw - pw - 6 - iw) / 2, top + bh / 2 + 0.5);
-      // 右侧特色圆章
-      const icx = left + bw - iw / 2 - 2, icy = top + bh / 2, ir = (bh - 6) / 2;
+      const icx = left + bw - iw / 2 - 2, icy = top + bh / 2, ir = (bh - 6) / 2; // 右侧特色圆章
       ctx.fillStyle = "#e9dcb8"; ctx.beginPath(); ctx.arc(icx, icy, ir, 0, 7); ctx.fill(); ctx.strokeStyle = "#8a6a2e"; ctx.lineWidth = 1; ctx.stroke();
       ctx.font = `${ir * 1.3}px ${EMOJI}`; ctx.fillStyle = "#000";
-      ctx.fillText(tag ? { gov: "🏛️", campus: "🎓", commercial: "🏦", industrial: "🏭", theater: "🎭", entertainment: "🎡", harbor: "⚓", farm: "🌾" }[tag] : "🏘️", icx, icy + 1);
-      // 产出行
-      if (yl) {
-        const ty = top + bh + 1, th = fsz + 4;
-        ctx.fillStyle = "rgba(14,18,26,.9)"; roundRect(ctx, left + 4, ty, bw - 8, th, 4); ctx.fill();
-        let px = x - yw / 2 + 4;
+      ctx.fillText(cityTag(c) ? { gov: "🏛️", campus: "🎓", commercial: "🏦", industrial: "🏭", theater: "🎭", entertainment: "🎡", harbor: "⚓", farm: "🌾" }[cityTag(c)] : "🏘️", icx, icy + 1);
+      if (yl) { // 产出行
+        const ty = top + bh + 1;
+        ctx.fillStyle = "rgba(14,18,26,.9)"; roundRect(ctx, left + 4, ty, bw - 8, yh - 1, 4); ctx.fill();
+        let px = cxp - yw / 2 + 4;
         for (const [ic, v] of yl) {
-          ctx.font = `${fsz - 3}px ${EMOJI}`; ctx.textAlign = "left"; ctx.fillText(ic, px, ty + th / 2 + 1); px += fsz - 1;
-          ctx.font = `600 ${fsz - 3}px ${SERIF}`; ctx.fillStyle = "#e9dfc6"; ctx.fillText(v, px, ty + th / 2 + 0.5); px += ctx.measureText(v).width + 7; ctx.fillStyle = "#000";
+          ctx.font = `${fsz - 3}px ${EMOJI}`; ctx.textAlign = "left"; ctx.fillStyle = "#000"; ctx.fillText(ic, px, ty + yh / 2 + 0.5); px += fsz - 1;
+          ctx.font = `600 ${fsz - 3}px ${SERIF}`; ctx.fillStyle = "#e9dfc6"; ctx.fillText(v, px, ty + yh / 2); px += ctx.measureText(v).width + 7;
         }
       }
       hits.push({ rect: full, info: { t: "city", d: c } });
+    }
+    // 10) 没挂上旗标的城市:楼群下方一个小地名(不压任何旗标)
+    for (const c of smallLabels) {
+      const own = clusterOf.get(c.id); if (!own) continue;
+      const fs = Math.max(10, Math.min(13, rpx * 0.16));
+      ctx.font = `700 ${fs}px ${SERIF}`;
+      const w = ctx.measureText(c.name).width + 8, y = own.y + rpx * 0.62, rect = [own.x - w / 2, y - fs / 2 - 2, w, fs + 4];
+      if (taken.some((t) => hit(rect, t))) continue;
+      taken.push(rect);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+      ctx.strokeStyle = "rgba(25,22,15,.85)"; ctx.lineWidth = 3; ctx.strokeText(c.name, own.x, y);
+      ctx.fillStyle = "#fbf1d6"; ctx.fillText(c.name, own.x, y);
+      hits.push({ rect, info: { t: "city", d: c } });
     }
   }
   return { draw, hits: () => hits };
