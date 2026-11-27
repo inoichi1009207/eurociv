@@ -178,13 +178,7 @@ function building(g, x, y, w, h, pal, u, r, glassStripe) {
   if (u >= 16 && r() < 0.6) { const s = w * 0.22; box(g, x + (r() - 0.5) * w * 0.3, y - h + (r() - 0.5) * w * 0.1, s, s * 0.35, "#c9ccd0", "#a3a7ab", "#8a8e93"); }
 }
 function drawCity(g, u, r, tier) {
-  // 1) 地面:六边形内铺周边草地,中心一圈暖色光晕(裁在格内)
-  g.save(); hexClip(g, u * 1.02); g.clip();
-  g.fillStyle = "#9fb66a"; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
-  const glow = g.createRadialGradient(0, u * 0.1, u * 0.1, 0, u * 0.1, u * 1.05);
-  glow.addColorStop(0, "rgba(246,226,160,.95)"); glow.addColorStop(0.6, "rgba(232,212,150,.6)"); glow.addColorStop(1, "rgba(232,212,150,0)");
-  g.fillStyle = glow; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
-  g.restore();
+  // 1) 透明底:城市直接叠在原地形上,只在平台下留一圈很淡的投影
   // 2) 等距街区平台(菱形),大小随城市档位
   const S = u * [0.5, 0.6, 0.72, 0.82, 0.92][tier], cyp = u * 0.22; // 半宽、平台中心 y
   const dia = (s, yc) => { g.beginPath(); g.moveTo(0, yc - s / 2); g.lineTo(s, yc); g.lineTo(0, yc + s / 2); g.lineTo(-s, yc); g.closePath(); };
@@ -229,10 +223,7 @@ function drawCity(g, u, r, tier) {
   }
 }
 function drawSuburb(g, u, r) {
-  g.save(); hexClip(g, u * 1.02); g.clip();
-  g.fillStyle = "#9fb66a"; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
-  const glow = g.createRadialGradient(0, 0, 0, 0, 0, u); glow.addColorStop(0, "rgba(236,222,170,.55)"); glow.addColorStop(1, "rgba(236,222,170,0)");
-  g.fillStyle = glow; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
+  g.save(); hexClip(g, u * 1.02); g.clip(); // 郊区:透明底,只画小街、房屋和树
   // 弯曲的小街
   g.strokeStyle = "rgba(225,215,190,.9)"; g.lineWidth = Math.max(0.8, u * 0.03);
   g.beginPath(); g.moveTo(-u, u * 0.1); g.quadraticCurveTo(0, -u * 0.35, u, u * 0.15); g.stroke();

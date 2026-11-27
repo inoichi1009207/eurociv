@@ -255,6 +255,7 @@ function workforce(r) {
   const tot = r.jobs.total;
   const rows = SECTORS.map(([k, n, ic, col]) => [k, n, ic, col, r.jobs[k] ?? 0]);
   const other = Math.max(0, tot - rows.reduce((t, x) => t + x[4], 0));
+  if (other / tot > 0.6) return ""; // 分行业数据不足四成(如荷兰只报总数):不画这张图
   if (other / tot > 0.005) rows.push(["other", "其他", "🧑", "#5d6676", other]);
   const per = tot / 24;
   let figs = "", acc = 0, shown = 0;
@@ -288,6 +289,14 @@ function nearby(r3index) {
   return `${ws.length ? `<div class="card"><div class="card-h">奇观</div>${ws.map((w) => `<div class="district"><span class="ic">${w.natural ? "🏞️" : "🏛️"}</span><div>${esc(w.name)}${w.name_en && w.name_en !== w.name ? `<small>${esc(w.name_en)}</small>` : ""}</div></div>`).join("")}</div>` : ""}
     ${res.length ? `<div class="card"><div class="card-h">资源</div><div class="chips">${res.map((x) => `<span class="chip">${x.ic} ${esc(x.n)}${x.s ? ` · ${esc(x.s)}` : ""}</span>`).join("")}</div></div>` : ""}`;
 }
+function transportCard(r3index, cell) {
+  const cells = new Set(); for (let i = 0; i < C.r3.length; i++) if (C.r3[i] === r3index) cells.add(i);
+  if (cell >= 0) { cells.add(cell); for (const j of H.nb.slice(cell * 6, cell * 6 + 6)) if (j >= 0) cells.add(j); }
+  const ap = features.airports.filter((a) => cells.has(a.cell)).sort((a, b) => a.rank - b.rank);
+  const pt = features.ports.filter((p) => cells.has(p.cell));
+  if (!ap.length && !pt.length) return "";
+  return `<div class="card"><div class="card-h">交通</div><div class="chips">${ap.map((a) => `<span class="chip">✈️ ${esc(a.name)}${a.iata ? " · " + esc(a.iata) : ""}</span>`).join("")}${pt.map((p) => `<span class="chip">⚓ ${esc(p.name)}</span>`).join("")}</div></div>`;
+}
 function openCity(id) {
   const c = cityById.get(id); if (!c) return;
   const r = regions.r3[c.r3], r2 = r.r2 >= 0 ? regions.r2[r.r2] : null;
@@ -308,7 +317,7 @@ function openCity(id) {
       <div class="medals">${medal(rankOf("pop", c.id), "人口")}${medal(rankOf("gdp", c.id), "GDP")}${medal(rankOf("pps", c.id), "人均购买力")}${medal(rankOf("sci", c.id), "科技")}</div>
     </div>
     <nav class="tabs"><button data-tab="citizens" class="on">👥 市民</button><button data-tab="districts">🏛️ 区域</button><button data-tab="economy">💰 经济</button><button data-tab="region">🗺️ 大区</button></nav>
-    <section data-pane="citizens">${workforce(r) || `<div class="note">暂无分行业就业数据。</div>`}${nearby(c.r3)}</section>
+    <section data-pane="citizens">${workforce(r)}${transportCard(c.r3, c.cell)}${nearby(c.r3)}</section>
     <section data-pane="districts" hidden>${c.districts.length ? c.districts.map((d) => `<div class="district big"><span class="ic">${DI[d.key].icon}</span><div>${esc(DI[d.key].label)}<small>${esc(d.why)}</small></div></div>`).join("") : `<div class="note">还没有特色区域。</div>`}</section>
     <section data-pane="economy" hidden><div class="card"><div class="card-h">产出 <small>${esc(r.name)}</small></div>${yieldsGrid(r)}</div>
       ${shared.length ? `<div class="card"><div class="card-h">同辖区城市</div><div class="chips">${shared.map((x) => `<span class="chip" data-city="${x.id}">${esc(x.name)}</span>`).join("")}</div></div>` : ""}</section>

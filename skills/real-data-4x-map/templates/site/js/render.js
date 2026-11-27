@@ -75,12 +75,11 @@ export function createRenderer(canvas, W, H) {
   const suburb = new Uint8Array(N);
   for (const c of cities) if (c.cell >= 0 && cityTier(c.pop) >= 3) for (let n = 0; n < 6; n++) { const j = H.nb[c.cell * 6 + n]; if (land(j) && !cityByCell.has(j)) suburb[j] = 1; }
   const T = world.tables.terrain.map((t) => t.key);
-  const kind = new Array(N).fill(null);
+  const kind = new Array(N).fill(null), over = new Array(N).fill(null); // 底层地形 / 叠加物(城市楼群、郊区)
   for (let i = 0; i < N; i++) {
     if (!land(i)) continue;
     const c = cityByCell.get(i);
-    if (c) { kind[i] = "city" + cityTier(c.pop); continue; }
-    if (suburb[i]) { kind[i] = "suburb"; continue; }
+    if (c) over[i] = "city" + cityTier(c.pop); else if (suburb[i]) over[i] = "suburb";
     if (C.relief[i] === 2) { kind[i] = "mountain"; continue; }
     const [, gy] = H.center(i);
     if (C.feature[i] === 1) { kind[i] = T[C.terrain[i]] === "tundra" || elevAt(i) > 800 || gy < H.height * 0.4 ? "conifer" : "forest"; continue; }
@@ -96,13 +95,14 @@ export function createRenderer(canvas, W, H) {
   // 把一格画到某个 2D 上下文:图块 + 阴影 + 迷雾
   function paintCell(g, i, x, y, u, lensCol) {
     if (!land(i)) { g.fillStyle = waterColor(i); hexFill(g, x, y, u * 1.02); return; }
-    const sp = sprite(kind[i], (hash(i) * 4) | 0, u);
-    const k = u / sp.u, w = sp.width * k, h = sp.height * k;
-    g.drawImage(sp, x - w / 2, y - h / 2, w, h);
-    const sh = kind[i].startsWith("city") ? 1 : shade[i]; // 城市楼群伸出格外,不叠格内阴影
+    const v = (hash(i) * 4) | 0;
+    const draw1 = (t) => { const sp = sprite(t, v, u); const k = u / sp.u, w = sp.width * k, h = sp.height * k; g.drawImage(sp, x - w / 2, y - h / 2, w, h); };
+    draw1(kind[i]);
+    const sh = shade[i];
     if (sh < 0.99) { g.fillStyle = `rgba(20,15,5,${((1 - sh) * 1.3).toFixed(3)})`; hexFill(g, x, y, u * 1.02); }
     else if (sh > 1.01) { g.fillStyle = `rgba(255,250,225,${((sh - 1) * 0.9).toFixed(3)})`; hexFill(g, x, y, u * 1.02); }
     if (lensCol) { g.fillStyle = lensCol; g.globalAlpha = 0.82; hexFill(g, x, y, u * 1.02); g.globalAlpha = 1; }
+    if (over[i]) draw1(over[i]); // 楼群、郊区直接叠在原地形上(不加光晕、不压暗)
     if (C.fog[i]) { g.fillStyle = "rgba(28,32,38,.72)"; hexFill(g, x, y, u * 1.02); }
   }
   function hexFill(g, x, y, u) { g.beginPath(); for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + (k * Math.PI) / 3; const px = x + Math.cos(a) * u, py = y + Math.sin(a) * u; k ? g.lineTo(px, py) : g.moveTo(px, py); } g.closePath(); g.fill(); }
@@ -248,7 +248,9 @@ export function createRenderer(canvas, W, H) {
     const free = (x, y, r) => !dots.some(([a, b, rr]) => Math.hypot(a - x, b - y) < r + rr);
     const put = (type, gx, gy, sz, info, offset = [0.38, 0.3]) => {
       const cl = H.locate(gx, gy);
-      if (cityByCell.has(cl)) { if (!type.startsWith("wonder")) return; offset = [-0.62, 0.6]; } // 城市格只画楼群;奇观挪到格子左下角
+      if (cityByCell.has(cl)) { // 城市格:楼群居中,机场/港口/奇观挪到格子角上,其余设施不画
+        if (type === "airport") offset = [0.62, 0.55]; else if (type === "port") offset = [-0.66, -0.2]; else if (type.startsWith("wonder")) offset = [-0.62, 0.6]; else return;
+      }
       const [hx, hy] = H.center(cl);
       const x = X(hx) + rpx * offset[0], y = Y(hy) + rpx * offset[1];
       if (x < -40 || y < -40 || x > vw + 40 || y > vh + 40 || !free(x, y, sz * 0.5)) return;
@@ -274,7 +276,7 @@ export function createRenderer(canvas, W, H) {
       if (opts.resources) {
         const pmin = rpx >= 16 ? 0 : rpx >= 10 ? 600 : rpx >= 6 ? 1500 : Infinity;
         for (const p of features.power) if (p.mw >= pmin) put(p.kind, p.x, p.y, Math.min(30, Math.max(11, rpx * 0.7)), { t: "power", d: p });
-        if (rpx >= 9) for (const a of features.airports) if (a.rank <= (rpx >= 14 ? 9 : 5)) put("airport", a.x, a.y, Math.min(30, Math.max(11, rpx * 0.7)), { t: "airport", d: a }, [-0.3, -0.25]);
+        if (rpx >= 7) for (const a of features.airports) if (a.rank <= (rpx >= 12 ? 9 : 5)) put("airport", a.x, a.y, Math.min(30, Math.max(11, rpx * 0.7)), { t: "airport", d: a }, [-0.3, -0.25]);
         if (rpx >= 13) for (const p of features.ports) put("port", p.x, p.y, Math.min(28, rpx * 0.6), { t: "port", d: p }, [-0.35, 0.3]);
         if (rpx >= 11) for (const m of features.mines) medal(RES_ICON[m.kind] || "⛏️", m.x, m.y, { t: "mine", d: m });
         if (rpx >= 11) for (const a of features.agri) medal(RES_ICON[a.kind], a.x, a.y, { t: "agri", d: a });
@@ -323,7 +325,7 @@ export function createRenderer(canvas, W, H) {
       ctx.font = `700 ${fsz - 1}px ${SERIF}`; const pw = ctx.measureText(popTxt).width + 14;
       const iw = fsz + 8;
       const r = regions.r3[c.r3];
-      const yl = showYields && r ? [["🌾", fmtK(r.yields.food)], ["⚙️", fmtK(r.yields.production)], ["💰", fmtK(r.yields.gold, true)], ["🔬", fmtK(r.yields.science)], ["🎭", fmtK(r.yields.culture)]] : null;
+      const yl = showYields && r ? [["🌾", r.yields.food], ["⚙️", r.yields.production], ["💰", r.yields.gold, true], ["🔬", r.yields.science], ["🎭", r.yields.culture]].filter((y) => y[1] != null).map(([ic, v, gold]) => [ic, fmtK(v, gold)]) : null;
       let yw = 0;
       if (yl) { ctx.font = `600 ${fsz - 3}px ${SERIF}`; yw = yl.reduce((s2, [, v]) => s2 + ctx.measureText(v).width + fsz + 6, 8); }
       const bw = Math.max(tw + pw + iw + 22, yw), bh = fsz + 11;
