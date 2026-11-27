@@ -194,6 +194,13 @@ export function createRenderer(canvas, W, H) {
         if (rpx >= 14) { ctx.setLineDash([1, Math.max(3, rpx * 0.14)]); ctx.lineWidth = w * 3; ctx.strokeStyle = "rgba(70,60,50,.55)"; ctx.stroke(); ctx.setLineDash([]); }
       }
     }
+    // 3b) 城市格压在交通线与河流之上:线路在城市边缘「进城」,楼群不被穿过
+    if (rpx >= 4) for (const c of cities) {
+      if (c.cell < 0) continue;
+      const [gx, gy] = H.center(c.cell); const x = X(gx), y = Y(gy);
+      if (x < -rpx * 2 || y < -rpx * 2 || x > vw + rpx * 2 || y > vh + rpx * 2) continue;
+      paintCell(ctx, c.cell, x, y, rpx, lens && !C.fog[c.cell] ? lens[c.cell] || "#5c6168" : null);
+    }
     // 4) 内部边界与国界(文明式:每国沿自己领土的格边内缩画一条国色线,两国相邻处为两条并行色线)
     const edgePath = (pred, inset = 1) => {
       const p = new Path2D();
@@ -239,7 +246,9 @@ export function createRenderer(canvas, W, H) {
     const dots = [];
     const free = (x, y, r) => !dots.some(([a, b, rr]) => Math.hypot(a - x, b - y) < r + rr);
     const put = (type, gx, gy, sz, info, offset = [0.38, 0.3]) => {
-      const [hx, hy] = H.center(H.locate(gx, gy));
+      const cl = H.locate(gx, gy);
+      if ((type === "wind" || type === "solar") && cityByCell.has(cl)) return; // 城市格只画楼群
+      const [hx, hy] = H.center(cl);
       const x = X(hx) + rpx * offset[0], y = Y(hy) + rpx * offset[1];
       if (x < -40 || y < -40 || x > vw + 40 || y > vh + 40 || !free(x, y, sz * 0.5)) return;
       const sp = sprite(type, 0, sz); const k = sz / sp.u;

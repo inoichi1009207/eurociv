@@ -53,23 +53,57 @@ function drawTerrain(g, kind, u, r) {
   if (kind === "fields") {
     // 农田拼块:随机分割的矩形条,带细田埂
     const C = ["#c9b45a", "#d8c46e", "#a9b84f", "#8fae4a", "#b9963f", "#9c7b45", "#cdbd7a", "#7fa346", "#b5c26a", "#c7a45a"];
-    const cell = u * 0.42;
-    for (let y = -u * 1.1; y < u * 1.1; y += cell) {
-      let x = -W * 0.6 - r() * cell;
-      while (x < W * 0.6) {
-        const w = cell * (0.6 + r() * 1.4);
+    // 田块要比六边形小,每排随机错位;整片田垄再随机旋转 ±30°,
+    // 否则水平的田排 + 六边形尖顶会拼出一个个「房子」轮廓
+    const cell = u * 0.27;
+    g.save(); g.rotate((r() - 0.5) * 1.05);
+    for (let y = -u * 1.6 - r() * cell; y < u * 1.6; y += cell * (0.8 + r() * 0.5)) {
+      let x = -W - r() * cell * 2;
+      while (x < W) {
+        const w = cell * (0.7 + r() * 1.8);
         g.fillStyle = C[Math.floor(r() * C.length)]; g.fillRect(x, y, w, cell);
         if (u > 14 && r() < 0.5) { g.strokeStyle = "rgba(255,255,230,.12)"; g.lineWidth = 1; for (let k = 2; k < w; k += 3) { g.beginPath(); g.moveTo(x + k, y + 1); g.lineTo(x + k, y + cell - 1); g.stroke(); } }
         g.strokeStyle = "rgba(80,70,40,.35)"; g.lineWidth = Math.max(0.5, u * 0.02); g.strokeRect(x, y, w, cell);
         x += w;
       }
     }
+    g.restore();
   } else if (kind === "pasture") {
-    g.strokeStyle = "rgba(255,255,220,.10)"; g.lineWidth = u * 0.12;
-    for (let k = -3; k <= 3; k++) { g.beginPath(); g.moveTo(-W, k * u * 0.35 + u * 0.2); g.lineTo(W, k * u * 0.35 - u * 0.2); g.stroke(); }
-    g.strokeStyle = "rgba(60,90,40,.55)"; g.lineWidth = Math.max(0.8, u * 0.05);
-    for (let k = 0; k < 3; k++) { const y0 = (r() - 0.5) * u * 1.3; g.beginPath(); g.moveTo(-W * 0.6, y0); g.lineTo(W * 0.6, y0 - u * 0.3 + r() * u * 0.6); g.stroke(); }
-    for (let k = 0; k < 2; k++) tree(g, (r() - 0.5) * W * 0.8, (r() - 0.3) * u, u * 0.32, r, false);
+    // 1) 草色斑块:几块不规则的深浅草地,边缘柔和
+    const greens = ["#94b85e", "#86ad55", "#a1c169", "#7ea24f", "#9bbb62"];
+    for (let k = 0; k < 7; k++) {
+      const cx = (r() - 0.5) * W * 1.1, cy = (r() - 0.5) * u * 1.8, rx = u * (0.35 + r() * 0.45), ry = rx * (0.5 + r() * 0.35);
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, rx);
+      const c = greens[Math.floor(r() * greens.length)];
+      gr.addColorStop(0, c); gr.addColorStop(1, c + "00");
+      g.fillStyle = gr; g.beginPath(); g.ellipse(cx, cy, rx, ry, r() * Math.PI, 0, 7); g.fill();
+    }
+    // 2) 细碎草丛纹理
+    if (u >= 10) {
+      g.strokeStyle = "rgba(70,100,40,.28)"; g.lineWidth = Math.max(0.5, u * 0.018);
+      for (let k = 0; k < Math.round(u * 1.6); k++) {
+        const x = (r() - 0.5) * W, y = (r() - 0.5) * u * 1.9, h = u * (0.04 + r() * 0.04);
+        g.beginPath(); g.moveTo(x - h * 0.4, y); g.lineTo(x, y - h); g.moveTo(x + h * 0.4, y); g.lineTo(x, y - h); g.stroke();
+      }
+    }
+    // 3) 树篱:沿一条柔和曲线排列的小灌木团(先画阴影再画树冠)
+    const hedges = 1 + Math.floor(r() * 2);
+    for (let k = 0; k < hedges; k++) {
+      const y0 = (r() - 0.5) * u * 1.1, x0 = -W * 0.55, x1 = W * 0.55, bend = (r() - 0.5) * u * 0.6, tilt = (r() - 0.5) * u * 0.5;
+      const n = Math.max(6, Math.round(u * 0.45));
+      for (let pass = 0; pass < 2; pass++) for (let j = 0; j <= n; j++) {
+        const t = j / n, x = x0 + (x1 - x0) * t, y = y0 + tilt * (t - 0.5) + bend * 4 * t * (1 - t), rr = u * (0.045 + r() * 0.03);
+        if (pass === 0) { g.fillStyle = "rgba(30,45,20,.25)"; g.beginPath(); g.ellipse(x + rr * 0.6, y + rr * 0.5, rr * 1.1, rr * 0.6, 0, 0, 7); g.fill(); }
+        else { g.fillStyle = r() < 0.5 ? "#4f7a35" : "#5c8a3c"; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); }
+      }
+    }
+    // 4) 零星的树,放大时再点几只牛羊
+    for (let k = 0; k < 2; k++) tree(g, (r() - 0.5) * W * 0.75, (r() - 0.2) * u * 0.9, u * (0.26 + r() * 0.08), r, false);
+    if (u >= 22) for (let k = 0; k < 4; k++) {
+      const x = (r() - 0.5) * W * 0.7, y = (r() - 0.5) * u, s = u * 0.035;
+      g.fillStyle = r() < 0.6 ? "#f4f1e8" : "#6b4a32"; g.beginPath(); g.ellipse(x, y, s * 1.6, s, 0, 0, 7); g.fill();
+      g.fillStyle = "#3a3a3a"; g.beginPath(); g.arc(x + s * 1.5, y - s * 0.2, s * 0.55, 0, 7); g.fill();
+    }
   } else if (kind === "forest" || kind === "conifer") {
     const pts = [];
     for (let k = 0; k < 16; k++) pts.push([(r() - 0.5) * W * 0.95, (r() - 0.45) * u * 1.6]);
@@ -98,12 +132,19 @@ function drawTerrain(g, kind, u, r) {
     for (let k = 0; k < 12; k++) { const x = (r() - 0.5) * W * 0.9, y = (r() - 0.5) * u * 1.4; g.beginPath(); g.moveTo(x, y); g.lineTo(x - u * 0.04, y - u * 0.18); g.moveTo(x, y); g.lineTo(x + u * 0.05, y - u * 0.16); g.stroke(); }
   }
 }
+// 丘陵:几座柔和的小山包 —— 左上受光、右下背光,全部是渐隐的椭圆,没有硬边
 function drawHills(g, u, r) {
-  for (const [ox, oy] of [[-0.35, 0.3], [0.3, 0.1], [-0.05, -0.35]]) {
-    const x = ox * u + (r() - 0.5) * u * 0.1, y = oy * u, w = u * 0.42;
-    const gr = g.createLinearGradient(x - w, y - w * 0.6, x + w, y);
-    gr.addColorStop(0, "rgba(255,250,220,.30)"); gr.addColorStop(1, "rgba(60,50,20,.28)");
-    g.fillStyle = gr; g.beginPath(); g.moveTo(x - w, y); g.quadraticCurveTo(x, y - w * 1.1, x + w, y); g.closePath(); g.fill();
+  const soft = (x, y, rx, ry, rgba) => {
+    const gr = g.createRadialGradient(x, y, 0, x, y, rx);
+    gr.addColorStop(0, rgba); gr.addColorStop(1, rgba.replace(/[\d.]+\)$/, "0)"));
+    g.save(); g.translate(x, y); g.scale(1, ry / rx); g.translate(-x, -y);
+    g.fillStyle = gr; g.beginPath(); g.arc(x, y, rx, 0, 7); g.fill(); g.restore();
+  };
+  const n = 3 + Math.floor(r() * 2);
+  for (let k = 0; k < n; k++) {
+    const x = (r() - 0.5) * u * 1.1, y = (r() - 0.5) * u * 1.2, w = u * (0.28 + r() * 0.16);
+    soft(x + w * 0.35, y + w * 0.25, w * 1.0, w * 0.6, "rgba(55,45,20,.26)");   // 背光面
+    soft(x - w * 0.3, y - w * 0.2, w * 0.8, w * 0.5, "rgba(255,248,215,.30)"); // 受光面
   }
 }
 
