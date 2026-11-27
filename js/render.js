@@ -45,19 +45,89 @@ export function createRenderer(canvas, W, H) {
   const countryColor = world.countries.map((c) => c.color);
   let bannerRects = [];
 
-  // 每格底色(地形模式)预计算
+  // ---- 每格底色(地形模式)预计算:地形色 × 海拔色调 × 山体阴影 × 轻微抖动;水体按离岸距离做深浅 ----
+  const land = (i) => i >= 0 && C.water[i] === 0;
+  const dist = new Int16Array(N).fill(99), q = [];
+  for (let i = 0; i < N; i++) if (land(i)) { dist[i] = 0; q.push(i); }
+  for (let h = 0; h < q.length; h++) for (let n = 0; n < 6; n++) { const j = H.nb[q[h] * 6 + n]; if (j >= 0 && dist[j] > dist[q[h]] + 1) { dist[j] = dist[q[h]] + 1; q.push(j); } }
+  const elevAt = (i) => (i < 0 ? 0 : C.water[i] !== 0 ? 0 : C.elev[i] === -9999 ? 0 : C.elev[i]);
+  const hash = (i) => { let h = Math.imul(i ^ 0x9e3779b9, 2654435761); h ^= h >>> 15; return (h >>> 0) / 4294967296; };
+  const scale = (hex, f) => { const v = [1, 3, 5].map((k) => Math.max(0, Math.min(255, Math.round(parseInt(hex.slice(k, k + 2), 16) * f)))); return "#" + v.map((x) => x.toString(16).padStart(2, "0")).join(""); };
+  const OCEAN = ["#4a93b8", "#3c86ae", "#2f7099", "#255d85", "#1e4d73", "#1a4266", "#173a5e"];
   const baseFill = new Array(N);
   for (let i = 0; i < N; i++) {
-    if (C.water[i] !== 0) { baseFill[i] = waterColor[C.water[i]]; continue; }
+    if (C.water[i] === 3) { baseFill[i] = waterColor[3]; continue; }
+    if (C.water[i] !== 0) { baseFill[i] = OCEAN[Math.min(OCEAN.length - 1, dist[i])]; continue; }
     let col = terrainColor[C.terrain[i]];
-    if (C.relief[i] === 1) col = mix(col, "#9a8a62", 0.18);
-    if (C.relief[i] === 2) col = mix(col, "#7d7468", 0.65);
-    if (C.feature[i] === 1) col = mix(col, "#2f5d2a", 0.42);
-    if (C.feature[i] === 2) col = mix(col, "#4f7f6a", 0.35);
-    if (C.fog[i]) col = mix(grey(col, 0.9), "#23272d", 0.62);
+    const e = elevAt(i);
+    if (e > 300 && C.terrain[i] < 3) col = mix(col, "#a99a72", Math.min(0.4, (e - 300) / 3500)); // 高处偏褐
+    if (C.relief[i] === 2) col = mix(col, "#8a8274", 0.55);
+    if (C.feature[i] === 1) col = mix(col, "#3f5e34", 0.45);
+    if (C.feature[i] === 2) col = mix(col, "#5d8572", 0.35);
+    // 山体阴影:光从西北来,朝西北的坡亮、朝东南的坡暗
+    const nb = (n) => H.nb[i * 6 + n];
+    const dzdx = (elevAt(nb(0)) - elevAt(nb(3))) / (2 * H.w);
+    const dzdy = (elevAt(nb(4)) + elevAt(nb(5)) - elevAt(nb(1)) - elevAt(nb(2))) / (4 * H.h);
+    let shade = 1 + 0.009 * (dzdx + dzdy) / Math.SQRT2 * -1;
+    shade = Math.max(0.62, Math.min(1.3, shade)) * (0.965 + hash(i) * 0.07);
+    col = scale(col, shade);
+    if (C.fog[i]) col = mix(grey(col, 0.85), "#262a30", 0.6);
     baseFill[i] = col;
   }
   const cityCells = new Set(cities.map((c) => c.cell));
+
+  // ---- 缩小视图用的预渲染地形图(每 km 0.6 像素):一次画好,平移缩放时直接贴图 ----
+  const PRE = 0.6;
+  let preCanvas = null, preKey = null;
+  function prerender(lensColors, key) {
+    if (preKey === key && preCanvas) return preCanvas;
+    const cv = preCanvas || document.createElement("canvas");
+    cv.width = Math.ceil(H.width * PRE); cv.height = Math.ceil(H.height * PRE);
+    const g = cv.getContext("2d");
+    g.fillStyle = OCEAN[OCEAN.length - 1]; g.fillRect(0, 0, cv.width, cv.height);
+    const K0 = H.corners.map(([x, y]) => [x * PRE * 1.02, y * PRE * 1.02]);
+    const groups = new Map();
+    for (let i = 0; i < N; i++) {
+      const col = lensColors && C.water[i] === 0 ? (C.fog[i] ? "#3b3b3b" : lensColors[i] || "#555a60") : baseFill[i];
+      let p = groups.get(col); if (!p) { p = new Path2D(); groups.set(col, p); }
+      const [gx, gy] = H.center(i); const x = gx * PRE, y = gy * PRE;
+      p.moveTo(x + K0[0][0], y + K0[0][1]); for (let k = 1; k < 6; k++) p.lineTo(x + K0[k][0], y + K0[k][1]); p.closePath();
+    }
+    for (const [col, p] of groups) { g.fillStyle = col; g.fill(p); }
+    if (!lensColors) {
+      // 缩小时也要有质感:森林点小树,山脉点小山
+      const trees = new Path2D(), peaks = new Path2D(), snow = new Path2D();
+      const u = H.r * PRE;
+      for (let i = 0; i < N; i++) {
+        if (C.water[i] !== 0 || C.fog[i]) continue;
+        const [gx, gy] = H.center(i); const x = gx * PRE, y = gy * PRE;
+        if (C.feature[i] === 1 && C.relief[i] < 2) for (const [ox, oy] of [[-0.3, 0.25], [0.3, 0.2], [0, -0.25]]) {
+          const bx = x + ox * u, by = y + oy * u, hh = 0.3 * u;
+          trees.moveTo(bx - hh * 0.5, by); trees.lineTo(bx, by - hh * 1.3); trees.lineTo(bx + hh * 0.5, by); trees.closePath();
+        }
+        if (C.relief[i] === 2) { const hh = 0.75 * u; peaks.moveTo(x - hh * 0.8, y + hh * 0.45); peaks.lineTo(x, y - hh * 0.85); peaks.lineTo(x + hh * 0.8, y + hh * 0.45); peaks.closePath(); snow.moveTo(x - hh * 0.27, y - hh * 0.4); snow.lineTo(x, y - hh * 0.85); snow.lineTo(x + hh * 0.27, y - hh * 0.4); snow.closePath(); }
+      }
+      g.fillStyle = "rgba(34,58,28,.75)"; g.fill(trees);
+      g.fillStyle = "#77705f"; g.fill(peaks); g.fillStyle = "rgba(246,247,248,.95)"; g.fill(snow);
+    }
+    preCanvas = cv; preKey = key;
+    return cv;
+  }
+  // 国名标注位置:每国最大连通块的格心平均
+  const labelPos = world.countries.map((c, ci) => {
+    if (!c.nuts) return null;
+    const seen = new Uint8Array(N); let best = [];
+    for (let i = 0; i < N; i++) {
+      if (seen[i] || !land(i) || C.country[i] !== ci || C.fog[i]) continue;
+      const comp = [i]; seen[i] = 1;
+      for (let h = 0; h < comp.length; h++) for (let n = 0; n < 6; n++) { const j = H.nb[comp[h] * 6 + n]; if (j >= 0 && !seen[j] && land(j) && C.country[j] === ci) { seen[j] = 1; comp.push(j); } }
+      if (comp.length > best.length) best = comp;
+    }
+    if (best.length < 3) return null;
+    const pts = best.map((i) => H.center(i));
+    return { name: c.name, n: best.length, x: pts.reduce((s, p) => s + p[0], 0) / pts.length, y: pts.reduce((s, p) => s + p[1], 0) / pts.length };
+  }).filter(Boolean);
+  const SERIF = '"Noto Serif SC","Source Han Serif SC","Songti SC","STSong","SimSun",serif';
 
   function draw(view, opts) {
     const { cx, cy, s } = view;
@@ -65,7 +135,7 @@ export function createRenderer(canvas, W, H) {
     const vw = canvas.clientWidth, vh = canvas.clientHeight;
     if (canvas.width !== Math.round(vw * dpr) || canvas.height !== Math.round(vh * dpr)) { canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr); }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = waterColor[1];
+    ctx.fillStyle = OCEAN[OCEAN.length - 1];
     ctx.fillRect(0, 0, vw, vh);
     const X = (gx) => (gx - cx) * s + vw / 2, Y = (gy) => (gy - cy) * s + vh / 2;
     const rpx = H.r * s;
@@ -82,22 +152,28 @@ export function createRenderer(canvas, W, H) {
       for (let k = 1; k < 6; k++) p.lineTo(x + K[k][0] * scale, y + K[k][1] * scale);
       p.closePath();
     };
-    // 1) 底色(地形或透镜),按颜色合批
+    // 1) 底色(地形或透镜)。缩小时贴预渲染图;放大时逐格矢量绘制,并描极淡的格线
     const lens = opts.lensColors;
-    const groups = new Map();
-    for (const i of visible) {
-      let col;
-      if (C.water[i] === 1 && !lens) continue; // 深海 = 背景色
-      if (lens && C.water[i] === 0) col = C.fog[i] ? "#3b3b3b" : lens[i] || "#555a60";
-      else col = baseFill[i];
-      if (col === waterColor[1] && !lens) continue;
-      let p = groups.get(col); if (!p) { p = new Path2D(); groups.set(col, p); }
-      hexPath(p, i);
+    const usePre = s * (window.devicePixelRatio || 1) <= PRE * 1.25;
+    if (usePre) {
+      const img = prerender(lens, lens ? "lens:" + opts.lensKey : "terrain");
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, X(0), Y(0), img.width / PRE * s, img.height / PRE * s);
+    } else {
+      const groups = new Map();
+      for (const i of visible) {
+        const col = lens && C.water[i] === 0 ? (C.fog[i] ? "#3b3b3b" : lens[i] || "#555a60") : baseFill[i];
+        let p = groups.get(col); if (!p) { p = new Path2D(); groups.set(col, p); }
+        hexPath(p, i);
+      }
+      for (const [col, p] of groups) { ctx.fillStyle = col; ctx.fill(p); }
+      const grid = new Path2D();
+      for (const i of visible) if (C.water[i] === 0) hexPath(grid, i);
+      ctx.strokeStyle = "rgba(20,15,5,.10)"; ctx.lineWidth = 1; ctx.stroke(grid);
     }
-    for (const [col, p] of groups) { ctx.fillStyle = col; ctx.fill(p); }
 
     // 2) 地貌细节(地形模式、放大时)
-    if (!lens && rpx >= 6) {
+    if (!lens && !usePre && rpx >= 6) {
       const hills = new Path2D(), peaks = new Path2D(), snow = new Path2D(), trees = new Path2D(), marsh = new Path2D(), fogHatch = new Path2D();
       for (const i of visible) {
         if (C.water[i] !== 0 || cityCells.has(i)) continue;
@@ -223,34 +299,71 @@ export function createRenderer(canvas, W, H) {
       if (opts.resources) for (const r of places.resources) pin(r.cell, r.kind === "nuclear" ? "☢️" : "💧", r.kind === "nuclear" ? "#e8d44d" : "#3fa7d6");
       if (opts.wonders && rpx >= 14) for (const w of places.wonders) pin(w.cell, w.natural ? "🏞️" : "🏛️", "#d9b56a");
     }
-    // 8) 城市旗标(按人口从大到小,避让重叠)
+    // 8) 国名:大字距衬线字,缩小时清晰、放大后渐隐
+    const labelAlpha = Math.max(0, Math.min(1, (14 - rpx) / 7));
+    if (labelAlpha > 0.02) {
+      ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+      for (const L of labelPos) {
+        const fs = Math.max(11, Math.min(40, Math.sqrt(L.n) * H.w * s * 0.2));
+        const x = X(L.x), y = Y(L.y);
+        if (x < -200 || y < -60 || x > vw + 200 || y > vh + 60) continue;
+        ctx.font = `700 ${fs}px ${SERIF}`;
+        const chars = [...L.name], gap = fs * 0.45;
+        const widths = chars.map((ch) => ctx.measureText(ch).width);
+        let cx0 = x - (widths.reduce((a, b) => a + b, 0) + gap * (chars.length - 1)) / 2;
+        chars.forEach((ch, k) => {
+          const cxk = cx0 + widths[k] / 2;
+          ctx.strokeStyle = `rgba(30,24,12,${0.45 * labelAlpha})`; ctx.lineWidth = Math.max(2, fs * 0.12); ctx.strokeText(ch, cxk, y);
+          ctx.fillStyle = `rgba(250,242,220,${0.7 * labelAlpha})`; ctx.fillText(ch, cxk, y);
+          cx0 += widths[k] + gap;
+        });
+      }
+      ctx.restore();
+    }
+    // 9) 四周压暗(视觉焦点落在中间)
+    const vg = ctx.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.45, vw / 2, vh / 2, Math.max(vw, vh) * 0.78);
+    vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(5,10,20,.42)");
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, vw, vh);
+    // 10) 城市旗标(按人口从大到小,避让重叠):衬线字、渐变底、人口牌 + 首个特色区域图标
     bannerRects = [];
     const minPop = rpx >= 20 ? 0 : rpx >= 13 ? 180000 : rpx >= 8 ? 350000 : rpx >= 5 ? 800000 : 1500000;
     ctx.textBaseline = "middle";
     const taken = [];
     const fsz = rpx >= 10 ? 13 : 12;
+    const DICON = { campus: "🎓", industrial: "🏭", commercial: "🏦", theater: "🎭", entertainment: "🎡", harbor: "⚓", farm: "🌾" };
+    const EMOJI = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
     for (const c of cities) {
       if (!(c.capital || c.pop >= minPop)) continue;
       const x = X(c.x), y = Y(c.y) - Math.max(10, rpx * 0.9);
       if (x < -120 || y < -30 || x > vw + 120 || y > vh + 30) continue;
-      ctx.font = `600 ${fsz}px ${getComputedStyle(document.body).fontFamily}`;
-      const label = c.name, popTxt = Math.round(c.pop / 1e4) + "万";
+      const label = (c.capital ? "★ " : "") + c.name, popTxt = Math.round(c.pop / 1e4) + "万";
+      const dkey = c.districts.find((d) => DICON[d.key])?.key;
+      ctx.font = `700 ${fsz}px ${SERIF}`;
       const tw = ctx.measureText(label).width;
-      ctx.font = `700 ${fsz - 1}px ${getComputedStyle(document.body).fontFamily}`;
+      ctx.font = `700 ${fsz - 1}px ${SERIF}`;
       const pw = ctx.measureText(popTxt).width + 10;
-      const bw = tw + pw + 14 + (c.capital ? 12 : 0), bh = fsz + 9;
+      const iw = dkey ? fsz + 6 : 0;
+      const bw = tw + pw + 16 + iw, bh = fsz + 10;
       const rect = [x - bw / 2, y - bh / 2, bw, bh];
       if (taken.some((t) => rect[0] < t[0] + t[2] + 2 && rect[0] + bw + 2 > t[0] && rect[1] < t[1] + t[3] + 1 && rect[1] + bh + 1 > t[1])) continue;
       taken.push(rect);
       const ci = world.countries.findIndex((k) => k.code === c.cntr);
       const col = ci >= 0 ? countryColor[ci] : "#888";
       const sel = opts.selCity === c.id;
-      ctx.fillStyle = "rgba(14,18,26,.92)"; roundRect(ctx, rect[0], rect[1], bw, bh, 4); ctx.fill();
-      ctx.strokeStyle = sel ? "#ffd76a" : mix(col, "#000000", 0.2); ctx.lineWidth = sel ? 2 : 1.2; ctx.stroke();
-      ctx.fillStyle = col; roundRect(ctx, rect[0] + 2, rect[1] + 2, pw, bh - 4, 3); ctx.fill();
+      const gr = ctx.createLinearGradient(0, rect[1], 0, rect[1] + bh);
+      gr.addColorStop(0, "rgba(38,46,62,.96)"); gr.addColorStop(1, "rgba(14,18,28,.96)");
+      ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
+      ctx.fillStyle = gr; roundRect(ctx, rect[0], rect[1], bw, bh, bh / 2); ctx.fill();
+      ctx.shadowColor = "transparent";
+      ctx.strokeStyle = sel ? "#ffd76a" : "rgba(201,164,92,.75)"; ctx.lineWidth = sel ? 2 : 1; ctx.stroke();
+      const pg = ctx.createLinearGradient(0, rect[1], 0, rect[1] + bh);
+      pg.addColorStop(0, mix(col, "#ffffff", 0.18)); pg.addColorStop(1, mix(col, "#000000", 0.25));
+      ctx.fillStyle = pg; roundRect(ctx, rect[0] + 2, rect[1] + 2, pw, bh - 4, (bh - 4) / 2); ctx.fill();
+      ctx.font = `700 ${fsz - 1}px ${SERIF}`;
       ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText(popTxt, rect[0] + 2 + pw / 2, y + 0.5);
-      ctx.font = `600 ${fsz}px ${getComputedStyle(document.body).fontFamily}`;
-      ctx.textAlign = "left"; ctx.fillStyle = "#f3ead2"; ctx.fillText((c.capital ? "★ " : "") + label, rect[0] + pw + 8, y + 0.5);
+      ctx.font = `700 ${fsz}px ${SERIF}`;
+      ctx.textAlign = "left"; ctx.fillStyle = "#f3e6c4"; ctx.fillText(label, rect[0] + pw + 8, y + 0.5);
+      if (dkey) { ctx.font = `${fsz - 1}px ${EMOJI}`; ctx.textAlign = "center"; ctx.fillText(DICON[dkey], rect[0] + bw - iw / 2 - 4, y + 1); }
       bannerRects.push({ rect, id: c.id });
     }
   }

@@ -96,7 +96,7 @@ function draw() {
   if (raf) return;
   raf = requestAnimationFrame(() => {
     raf = 0;
-    R.draw(view, { lensColors, lensLevel: lensDef?.level, selCity: state.selCity, selRegion: state.selRegion, rivers: state.rivers, wonders: state.wonders, resources: state.resources });
+    R.draw(view, { lensColors, lensKey: state.lens, lensLevel: lensDef?.level, selCity: state.selCity, selRegion: state.selRegion, rivers: state.rivers, wonders: state.wonders, resources: state.resources });
   });
 }
 window.addEventListener("resize", draw);
@@ -188,7 +188,7 @@ function hover(sx, sy) {
   }
   const w = places.wonders.find((x) => x.cell === i), rs = places.resources.find((x) => x.cell === i);
   if (w && state.wonders) h += `<br>${w.natural ? "🏞️" : "🏛️"} ${esc(w.name)}`;
-  if (rs && state.resources) h += `<br>${rs.kind === "nuclear" ? "☢️ 核电站" : "💧 水电站"} ${esc(rs.name)}${rs.mw ? ` · ${nf.format(Math.round(rs.mw))} MW` : ""}`;
+  if (rs && state.resources) h += `<br>${rs.kind === "nuclear" ? "☢️ 核电站" : "💧 水电站"} ${esc(rs.name)}${rs.mw ? ` · ${nf.format(Math.round(rs.mw))} MW` : ""} <span class="muted">· 状态${esc(rs.status || "未标注")}</span>`;
   showTip(sx, sy, h);
 }
 function showTip(sx, sy, html) {
@@ -351,16 +351,16 @@ const PAGES = {
     <p class="note">「按比例分配」:在每个 NUTS2 大区内,用确定性的平滑噪声给格子排序,取前 k 格,k = 该大区该类土地占比 × 格数。所以大区整体比例与 LUCAS 调查一致,但具体哪一格是森林是示意,不是卫星判读。</p>`; }],
   wonders: ["奇观与资源", () => `<h2>奇观与资源</h2>
     <p>🏛️/🏞️ <b>奇观</b> = 联合国教科文组织世界遗产(维基数据「遗产级别 P1435 = 世界遗产」),共 ${places.wonders.length} 处;多地点的系列遗产取第一个组成部分的位置。自然/文化之分按名称关键词(公园、森林、山、湖、海岸、洞穴等)粗分,可能有误。</p>
-    <p>☢️ <b>核电站</b>、💧 <b>水电站(≥ 300 MW)</b> 来自维基数据,排除了标注为关闭、退役或在建的条目;共 ${places.resources.length} 处。维基数据的装机与状态并不完整,仅作示意。</p>`],
+    <p>☢️ <b>核电站</b>、💧 <b>水电站(≥ 300 MW)</b> 来自维基数据。排除了运行状态标为退役、关闭、停运、在建、规划的条目,以及带关闭日期或解散日期的条目;多数电站在维基数据里没有运行状态字段,所以本图只能保证它们「未被标为关闭」,不能保证都在运行。共 ${places.resources.length} 处。维基数据的装机与状态并不完整,仅作示意。</p>`],
   lenses: ["透镜", () => `<h2>透镜</h2><table><tr><th>透镜</th><th>层级</th><th>含义与来源</th></tr>${meta.lenses.map((l) => `<tr><td>${esc(l.name)}</td><td>${l.level === "r3" ? "NUTS3" : l.level === "r2" ? "NUTS2" : "每格"}</td><td>${esc(l.desc)}</td></tr>`).join("")}</table><p class="note">配色区间取有数据格子的 2%–98% 分位,极端值被压到两端。</p>`],
   sources: ["数据源", () => `<h2>数据源</h2><table><tr><th>数据</th><th>用途</th><th>许可</th></tr>${sources.map((s) => `<tr><td><a href="${esc(s.homepage)}" target="_blank" rel="noopener">${esc(s.title)}</a><br><small>${esc(s.publisher)}</small></td><td>${esc(s.used_for)}</td><td>${esc(s.license)}</td></tr>`).join("")}</table>
-    <p class="note">行政边界 © EuroGeographics。统计数据来源:Eurostat,经本项目加工(选年份、估算细分行业、映射为游戏术语)。</p>`],
+    <p class="note">行政边界 © EuroGeographics for the administrative boundaries。统计数据来源:Eurostat,经本项目加工(选年份、估算细分行业、映射为游戏术语);加工后的数据与 Eurostat 无关,Eurostat 不对其承担责任。</p>`],
   coverage: ["覆盖与缺口", () => { const fogC = world.countries.filter((c) => !c.nuts).map((c) => c.name); return `<h2>覆盖与缺口</h2>
     <p><b>有数据</b>:${world.countries.filter((c) => c.nuts).map((c) => esc(c.name)).join("、")}。</p>
     <p><b>迷雾(无数据,只画地形)</b>:${fogC.map(esc).join("、")}。英国脱欧后不在 NUTS 2024 中;乌克兰、白俄罗斯、俄罗斯等不属于 NUTS 体系。</p>
     <p><b>未画入</b>(远离欧洲大陆的地区):${world.skipped.map((s) => esc(s.name) + `(${s.id})`).join("、")}。</p>
     <p><b>小岛补救</b>:${world.rescued.length} 个面积不小却没分到格子的岛屿地区,各补了一格:${world.rescued.join("、")}。</p>
-    <p><b>细分行业估算</b>:不少国家的 NUTS3 只报到「批发零售运输餐旅信息(G–J)」「金融地产专业服务(K–N)」「公共及其他服务(O–U)」等大类。信息通信、金融、专业服务、艺术娱乐缺报时,按「本地区父类就业 × 本国已报告地区的子类占比」估算,面板上标「估」;区域判定不使用估算值(学院的研发条件除外)。</p>
+    <p><b>细分行业估算</b>:不少国家的 NUTS3 只报到「批发零售运输餐旅信息(G–J)」「金融地产专业服务(K–N)」「公共及其他服务(O–U)」等大类。信息通信、金融、专业服务、艺术娱乐缺报时,按「本地区父类就业 × 本国已报告地区的子类占比」估算,面板上标「估」。区位商的全图基准只用实报值;依赖细分行业的区域(学院的就业条件、商业中心、剧院广场)遇到估算值不判定。</p>
     <p><b>年份不一</b>:每个地区取各数据集里自己最新的年份,面板上逐项注明。</p>`; }],
   help: ["操作", () => `<h2>操作</h2><table>
     <tr><td>拖动 / <span class="kbd">WASD</span> / 方向键</td><td>平移</td></tr><tr><td>滚轮 / 双指 / <span class="kbd">+</span> <span class="kbd">-</span></td><td>缩放</td></tr>

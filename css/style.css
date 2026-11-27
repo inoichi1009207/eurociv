@@ -11,7 +11,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 #topbar { position: fixed; top: 0; left: 0; right: 0; height: 46px; z-index: 10; display: flex; align-items: center; gap: 10px; padding: 0 12px;
   background: linear-gradient(#1d2a3d, #141d2b); border-bottom: 2px solid var(--gold); box-shadow: 0 2px 12px rgba(0,0,0,.5); }
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: 2px; color: var(--gold-2); white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 8px; font: 700 17px/1 "Noto Serif SC","Source Han Serif SC","Songti SC","STSong","SimSun",serif; letter-spacing: 6px; color: var(--gold-2); white-space: nowrap; }
 .emblem { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #2a4d8f; border: 2px solid var(--gold); color: #f8f0d8; font-size: 14px; }
 .yields { display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; }
 .yields::-webkit-scrollbar { display: none; }
