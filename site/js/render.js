@@ -195,12 +195,14 @@ export function createRenderer(canvas, W, H) {
         if (rpx >= 14) { ctx.setLineDash([1, Math.max(3, rpx * 0.14)]); ctx.lineWidth = w * 3; ctx.strokeStyle = "rgba(70,60,50,.55)"; ctx.stroke(); ctx.setLineDash([]); }
       }
     }
-    // 3b) 城市格压在交通线与河流之上:线路在城市边缘「进城」,楼群不被穿过
+    // 3b) 楼群压在交通线与河流之上:路一直通到城里,只是被楼挡住
     if (rpx >= 4) for (const c of cityByCell.values()) {
       if (c.cell < 0) continue;
       const [gx, gy] = H.center(c.cell); const x = X(gx), y = Y(gy);
       if (x < -rpx * 2 || y < -rpx * 2 || x > vw + rpx * 2 || y > vh + rpx * 2) continue;
-      paintCell(ctx, c.cell, x, y, rpx, lens && !C.fog[c.cell] ? lens[c.cell] || "#5c6168" : null);
+      // 只重画楼群(透明底的叠加物),底下的地形与公路铁路保留:路通进城里,被楼挡住
+      const sp = sprite(over[c.cell], (hash(c.cell) * 4) | 0, rpx), k = rpx / sp.u;
+      ctx.drawImage(sp, x - (sp.width * k) / 2, y - (sp.height * k) / 2, sp.width * k, sp.height * k);
     }
     // 4) 内部边界与国界(文明式:每国沿自己领土的格边内缩画一条国色线,两国相邻处为两条并行色线)
     const edgePath = (pred, inset = 1) => {
