@@ -150,39 +150,95 @@ function drawHills(g, u, r) {
 
 // ---------- 城市 ----------
 export function cityTier(pop) { return pop >= 3e6 ? 4 : pop >= 1e6 ? 3 : pop >= 4e5 ? 2 : pop >= 2e5 ? 1 : 0; }
-function drawCity(g, u, r, tier) {
-  // 地面
-  g.fillStyle = "#c9c0a8"; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
-  g.strokeStyle = "rgba(120,110,90,.5)"; g.lineWidth = Math.max(0.6, u * 0.025);
-  for (let k = -4; k <= 4; k++) { g.beginPath(); g.moveTo(-u * 1.2, k * u * 0.22 - u * 0.6); g.lineTo(u * 1.2, k * u * 0.22 + u * 0.6); g.stroke(); g.beginPath(); g.moveTo(-u * 1.2, k * u * 0.22 + u * 0.6); g.lineTo(u * 1.2, k * u * 0.22 - u * 0.6); g.stroke(); }
-  // 等距地块,中心高、外圈低
-  const lots = [];
-  const n = [3, 4, 5, 5, 6][tier];
-  const step = (u * 1.5) / n;
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-    const x = (i - j) * step * 0.5 * 1.15, y = (i + j - (n - 1)) * step * 0.29 + u * 0.15;
-    if (Math.hypot(x / u, y / u * 1.6) > 0.82) continue;
-    const dc = Math.hypot(x, y * 1.8) / u;
-    lots.push([x, y, dc]);
+// 建筑配色:顶 / 左面 / 右面 / 窗
+const BLD = {
+  glass: ["#d7e6f1", "#86a9c8", "#5f84a9", "rgba(235,248,255,.75)"],
+  white: ["#f3efe6", "#dad3c5", "#bdb4a4", "rgba(80,100,130,.55)"],
+  sand: ["#efe1c6", "#d2bd98", "#b49f7c", "rgba(90,80,60,.5)"],
+  brick: ["#e0aa8c", "#bd765c", "#9c5d47", "rgba(255,235,200,.55)"],
+  grey: ["#d9dbdd", "#b0b4b8", "#90959a", "rgba(60,75,95,.55)"],
+};
+// 在等距方块的两个侧面上画窗户格(斜线虚线)
+function windows(g, x, y, w, h, col, u) {
+  const d = w / 2, q = w / 4, gap = Math.max(2.2, u * 0.055);
+  g.strokeStyle = col; g.lineWidth = Math.max(0.6, u * 0.014);
+  g.setLineDash([Math.max(0.8, w * 0.07), Math.max(0.8, w * 0.06)]);
+  for (let k = gap * 0.8; k < h - gap * 0.4; k += gap) {
+    g.beginPath(); g.moveTo(x - d * 0.88, y - k + 0.06 * q); g.lineTo(x - d * 0.12, y + q * 0.88 - k); g.stroke();
+    g.beginPath(); g.moveTo(x + d * 0.12, y + q * 0.88 - k); g.lineTo(x + d * 0.88, y - k + 0.06 * q); g.stroke();
   }
-  lots.sort((a, b) => a[1] - b[1]);
-  const maxH = [0.25, 0.4, 0.6, 0.85, 1.15][tier] * u;
-  const palettes = [["#e9e4d8", "#c9c2b2", "#b3ab99"], ["#d9cbb3", "#b9a98d", "#a39276"], ["#c8d4de", "#9fb1c0", "#8799aa"], ["#e2d2c2", "#c1a991", "#a88f78"], ["#b8c7d6", "#8ea2b6", "#768aa0"]];
-  for (const [x, y, dc] of lots) {
-    const w = step * (0.62 + r() * 0.15);
-    if (r() < 0.12 && dc > 0.35) { tree(g, x, y + w * 0.2, w * 0.7, r, false); continue; }
-    const tall = Math.max(0.15, 1 - dc * 1.15) * maxH * (0.45 + r() * 0.75);
-    if (tier <= 1 || tall < u * 0.18) { house(g, x, y, w * 0.9, r); continue; }
-    const p = palettes[Math.floor(r() * palettes.length)];
-    box(g, x, y, w, tall, p[0], p[1], p[2]);
-    // 窗户条
-    if (u > 18) { g.fillStyle = "rgba(60,80,110,.35)"; for (let k = w * 0.4; k < tall - 2; k += Math.max(2, u * 0.08)) g.fillRect(x - w / 2 + w * 0.12, y - k, w * 0.3, Math.max(0.6, u * 0.02)); }
+  g.setLineDash([]);
+}
+function building(g, x, y, w, h, pal, u, r, glassStripe) {
+  const P = BLD[pal];
+  box(g, x, y, w, h, P[0], P[1], P[2]);
+  if (u >= 12 && h > w * 0.35) windows(g, x, y, w, h, P[3], u);
+  if (glassStripe) { g.fillStyle = "rgba(255,255,255,.22)"; g.beginPath(); g.moveTo(x - w * 0.32, y - h + w * 0.08); g.lineTo(x - w * 0.22, y - h + w * 0.13); g.lineTo(x - w * 0.22, y - w * 0.13 + w * 0.25); g.lineTo(x - w * 0.32, y + w * 0.08 - w * 0.0); g.closePath(); g.fill(); }
+  // 屋顶设备
+  if (u >= 16 && r() < 0.6) { const s = w * 0.22; box(g, x + (r() - 0.5) * w * 0.3, y - h + (r() - 0.5) * w * 0.1, s, s * 0.35, "#c9ccd0", "#a3a7ab", "#8a8e93"); }
+}
+function drawCity(g, u, r, tier) {
+  // 1) 地面:六边形内铺周边草地,中心一圈暖色光晕(裁在格内)
+  g.save(); hexClip(g, u * 1.02); g.clip();
+  g.fillStyle = "#9fb66a"; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
+  const glow = g.createRadialGradient(0, u * 0.1, u * 0.1, 0, u * 0.1, u * 1.05);
+  glow.addColorStop(0, "rgba(246,226,160,.95)"); glow.addColorStop(0.6, "rgba(232,212,150,.6)"); glow.addColorStop(1, "rgba(232,212,150,0)");
+  g.fillStyle = glow; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
+  g.restore();
+  // 2) 等距街区平台(菱形),大小随城市档位
+  const S = u * [0.5, 0.6, 0.72, 0.82, 0.92][tier], cyp = u * 0.22; // 半宽、平台中心 y
+  const dia = (s, yc) => { g.beginPath(); g.moveTo(0, yc - s / 2); g.lineTo(s, yc); g.lineTo(0, yc + s / 2); g.lineTo(-s, yc); g.closePath(); };
+  g.fillStyle = "rgba(40,35,20,.22)"; dia(S * 1.04, cyp + u * 0.04); g.fill();       // 平台阴影
+  g.fillStyle = "#d6cfbd"; dia(S, cyp); g.fill();
+  g.strokeStyle = "rgba(120,110,90,.6)"; g.lineWidth = Math.max(0.6, u * 0.012); g.stroke();
+  const n = [3, 4, 5, 6, 7][tier];
+  // 街道网格
+  g.strokeStyle = "rgba(150,140,120,.85)"; g.lineWidth = Math.max(0.7, u * 0.018);
+  for (let k = 1; k < n; k++) {
+    const t = k / n;
+    g.beginPath(); g.moveTo(-S + S * t, cyp - (S / 2) * t); g.lineTo(S * t, cyp + S / 2 - (S / 2) * t); g.stroke();
+    g.beginPath(); g.moveTo(S * t, cyp - S / 2 + (S / 2) * t); g.lineTo(-S + S * t, cyp + (S / 2) * t); g.stroke();
+  }
+  // 3) 地块:按 i+j 从后往前画
+  const lw = (2 * S) / n, lh = S / n;
+  const lots = [];
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const x = (i - j) * (lw / 2), y = cyp - S / 2 + (i + j + 1) * (lh / 2);
+    const dc = Math.hypot((i - (n - 1) / 2) / n, (j - (n - 1) / 2) / n) * 2; // 0 中心 → ~1.4 角
+    lots.push({ x, y, dc, o: i + j });
+  }
+  lots.sort((a, b) => a.o - b.o);
+  const maxH = u * [0.32, 0.5, 0.75, 1.05, 1.4][tier];
+  const fw = lw * 0.62;
+  let spire = tier >= 3;
+  for (const L of lots) {
+    const roll = r();
+    if (L.dc > 0.55 && roll < 0.12) { tree(g, L.x, L.y + lh * 0.15, fw * 0.75, r, false); continue; }
+    if (L.dc > 1.0 || (tier <= 1 && L.dc > 0.5)) { house(g, L.x - fw * 0.15, L.y, fw * 0.55, r); if (r() < 0.6) house(g, L.x + fw * 0.2, L.y + lh * 0.12, fw * 0.5, r); continue; }
+    const core = Math.max(0, 1 - L.dc * 0.9);
+    let h = maxH * (0.18 + core * core * (0.55 + r() * 0.6));
+    let pal = core > 0.55 && r() < 0.6 ? "glass" : ["white", "sand", "brick", "grey", "white"][Math.floor(r() * 5)];
+    if (spire && L.dc < 0.35) { // 地标塔
+      spire = false; h = maxH * 1.35; pal = "glass";
+      building(g, L.x, L.y, fw * 0.8, h, pal, u, r, true);
+      g.strokeStyle = "#8a96a3"; g.lineWidth = Math.max(0.8, u * 0.015); g.beginPath(); g.moveTo(L.x, L.y - h - fw * 0.2); g.lineTo(L.x, L.y - h - fw * 0.2 - u * 0.18); g.stroke();
+      continue;
+    }
+    building(g, L.x, L.y, fw, h, pal, u, r, pal === "glass");
+    if (h < maxH * 0.35 && r() < 0.5) building(g, L.x + fw * 0.22, L.y + lh * 0.18, fw * 0.5, h * 0.6, "white", u, r, false);
   }
 }
 function drawSuburb(g, u, r) {
-  g.fillStyle = "#9db667"; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
-  const pts = []; for (let k = 0; k < 9; k++) pts.push([(r() - 0.5) * u * 1.3, (r() - 0.5) * u * 1.1]);
-  pts.sort((a, b) => a[1] - b[1]).forEach(([x, y], k) => (k % 3 === 2 ? tree(g, x, y, u * 0.28, r, false) : house(g, x, y, u * 0.24, r)));
+  g.save(); hexClip(g, u * 1.02); g.clip();
+  g.fillStyle = "#9fb66a"; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
+  const glow = g.createRadialGradient(0, 0, 0, 0, 0, u); glow.addColorStop(0, "rgba(236,222,170,.55)"); glow.addColorStop(1, "rgba(236,222,170,0)");
+  g.fillStyle = glow; g.fillRect(-u * 2, -u * 2, u * 4, u * 4);
+  // 弯曲的小街
+  g.strokeStyle = "rgba(225,215,190,.9)"; g.lineWidth = Math.max(0.8, u * 0.03);
+  g.beginPath(); g.moveTo(-u, u * 0.1); g.quadraticCurveTo(0, -u * 0.35, u, u * 0.15); g.stroke();
+  const pts = []; for (let k = 0; k < 12; k++) pts.push([(r() - 0.5) * u * 1.35, (r() - 0.5) * u * 1.2]);
+  pts.sort((a, b) => a[1] - b[1]).forEach(([x, y], k) => (k % 4 === 3 ? tree(g, x, y, u * 0.24, r, false) : house(g, x, y, u * 0.2, r)));
+  g.restore();
 }
 
 // ---------- 设施与奇观(不裁成六边形的小物件,画在格内偏一侧) ----------
@@ -247,7 +303,8 @@ export function sprite(type, variant, u) {
   const key = `${type}|${variant}|${b}`;
   let c = cache.get(key);
   if (c) return c;
-  const pad = 1.2;
+  const isCity = type.startsWith("city");
+  const pad = isCity ? 2.4 : 1.2;
   const W = SQ3 * b * pad, H = 2 * b * pad;
   const isFacility = ["airport", "port", "nuclear", "coal", "gas", "oil", "hydro", "wind", "solar", "wonder", "wonderNatural", "barn"].includes(type);
   c = canvas(W, H);
@@ -257,7 +314,7 @@ export function sprite(type, variant, u) {
   if (isFacility) drawFacility(g, type, b, r);
   else {
     g.save(); hexClip(g, b * 1.02); g.clip();
-    if (type.startsWith("city")) drawCity(g, b, r, +type.slice(4));
+    if (isCity) { g.restore(); drawCity(g, b, r, +type.slice(4)); g.save(); }
     else if (type === "suburb") drawSuburb(g, b, r);
     else if (type.endsWith("+hills")) { drawTerrain(g, type.replace("+hills", ""), b, r); drawHills(g, b, r); }
     else drawTerrain(g, type, b, r);

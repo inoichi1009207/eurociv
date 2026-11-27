@@ -70,7 +70,8 @@ export function createRenderer(canvas, W, H) {
     const dzdy = (elevAt(nb(4)) + elevAt(nb(5)) - elevAt(nb(1)) - elevAt(nb(2))) / (4 * H.h);
     shade[i] = Math.max(0.7, Math.min(1.25, 1 - (0.008 * (dzdx + dzdy)) / Math.SQRT2));
   }
-  const cityByCell = new Map(cities.map((c) => [c.cell, c]));
+  const cityByCell = new Map(); // 同一格有多座城市时取人口最大的(巴黎格里还有布洛涅等)
+  for (const c of cities) if (!cityByCell.has(c.cell) || cityByCell.get(c.cell).pop < c.pop) cityByCell.set(c.cell, c);
   const suburb = new Uint8Array(N);
   for (const c of cities) if (c.cell >= 0 && cityTier(c.pop) >= 3) for (let n = 0; n < 6; n++) { const j = H.nb[c.cell * 6 + n]; if (land(j) && !cityByCell.has(j)) suburb[j] = 1; }
   const T = world.tables.terrain.map((t) => t.key);
@@ -98,7 +99,7 @@ export function createRenderer(canvas, W, H) {
     const sp = sprite(kind[i], (hash(i) * 4) | 0, u);
     const k = u / sp.u, w = sp.width * k, h = sp.height * k;
     g.drawImage(sp, x - w / 2, y - h / 2, w, h);
-    const sh = shade[i];
+    const sh = kind[i].startsWith("city") ? 1 : shade[i]; // 城市楼群伸出格外,不叠格内阴影
     if (sh < 0.99) { g.fillStyle = `rgba(20,15,5,${((1 - sh) * 1.3).toFixed(3)})`; hexFill(g, x, y, u * 1.02); }
     else if (sh > 1.01) { g.fillStyle = `rgba(255,250,225,${((sh - 1) * 0.9).toFixed(3)})`; hexFill(g, x, y, u * 1.02); }
     if (lensCol) { g.fillStyle = lensCol; g.globalAlpha = 0.82; hexFill(g, x, y, u * 1.02); g.globalAlpha = 1; }
@@ -195,7 +196,7 @@ export function createRenderer(canvas, W, H) {
       }
     }
     // 3b) 城市格压在交通线与河流之上:线路在城市边缘「进城」,楼群不被穿过
-    if (rpx >= 4) for (const c of cities) {
+    if (rpx >= 4) for (const c of cityByCell.values()) {
       if (c.cell < 0) continue;
       const [gx, gy] = H.center(c.cell); const x = X(gx), y = Y(gy);
       if (x < -rpx * 2 || y < -rpx * 2 || x > vw + rpx * 2 || y > vh + rpx * 2) continue;
@@ -247,7 +248,7 @@ export function createRenderer(canvas, W, H) {
     const free = (x, y, r) => !dots.some(([a, b, rr]) => Math.hypot(a - x, b - y) < r + rr);
     const put = (type, gx, gy, sz, info, offset = [0.38, 0.3]) => {
       const cl = H.locate(gx, gy);
-      if ((type === "wind" || type === "solar") && cityByCell.has(cl)) return; // 城市格只画楼群
+      if (cityByCell.has(cl)) { if (!type.startsWith("wonder")) return; offset = [-0.62, 0.6]; } // 城市格只画楼群;奇观挪到格子左下角
       const [hx, hy] = H.center(cl);
       const x = X(hx) + rpx * offset[0], y = Y(hy) + rpx * offset[1];
       if (x < -40 || y < -40 || x > vw + 40 || y > vh + 40 || !free(x, y, sz * 0.5)) return;
@@ -314,7 +315,7 @@ export function createRenderer(canvas, W, H) {
       if (!(c.capital || c.pop >= minPop)) continue;
       const tier = cityTier(c.pop);
       const fsz = [12, 12, 13, 14, 15][tier] + (rpx >= 14 ? 1 : 0);
-      const x = X(c.x), y0 = Y(c.y) - Math.max(12, rpx * 1.0) - (showYields ? fsz * 0.7 : 0);
+      const x = X(c.x), y0 = Y(c.y) - Math.max(12, rpx * (tier >= 3 ? 1.3 : tier >= 2 ? 1.1 : 1.0)) - (showYields ? fsz * 0.7 : 0); // 大城市楼更高,旗标抬高
       if (x < -160 || y0 < -50 || x > vw + 160 || y0 > vh + 50) continue;
       const tag = rpx >= 8 ? cityTag(c) : null;
       const popTxt = Math.round(c.pop / 1e4) + "万";
