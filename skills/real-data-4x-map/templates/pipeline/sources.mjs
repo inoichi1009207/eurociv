@@ -23,6 +23,25 @@ const wd = (file, q) => ({
 
 export const SOURCES = [
   {
+    id: "natural_earth_10m", group: "geo2",
+    title: "Natural Earth 1:1000 万 公路、铁路、机场、港口",
+    publisher: "Natural Earth", homepage: "https://www.naturalearthdata.com/",
+    license: "公有领域",
+    used_for: "地图上的公路、铁路线,机场与港口图标",
+    files: ["ne_10m_roads", "ne_10m_railroads", "ne_10m_airports", "ne_10m_ports"].map((n) => ({
+      url: `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/${n}.geojson`,
+      file: `ne/${n}.geojson`, timeoutMs: 600000,
+    })),
+  },
+  {
+    id: "powerplantmatching", group: "power",
+    title: "欧洲电厂库 powerplantmatching(按燃料分类:核电、煤电、燃气、水电、风电、光伏等)",
+    publisher: "PyPSA / powerplantmatching", homepage: "https://github.com/PyPSA/powerplantmatching",
+    license: "由多个开放电厂库合并而成,使用时注明来源",
+    used_for: "地图上的电厂图标(核电、火电、水电、风电、光伏)",
+    files: [{ url: "https://raw.githubusercontent.com/PyPSA/powerplantmatching/master/powerplants.csv", file: "power/powerplants.csv", timeoutMs: 600000 }],
+  },
+  {
     id: "gisco_nuts", group: "geo",
     title: "NUTS 2024 行政统计区边界(1:2000 万)",
     publisher: "欧盟统计局 GISCO", homepage: "https://ec.europa.eu/eurostat/web/gisco/geodata/statistical-units/territorial-units-statistics",
@@ -68,6 +87,8 @@ export const SOURCES = [
       es("tour_occ_nin2", "c_resid=TOTAL&nace_r2=I551-I553&unit=NR&unit=P_THAB&sinceTimePeriod=2019"),
       es("lfst_r_lfu3rt", "sex=T&age=Y15-74&isced11=TOTAL&sinceTimePeriod=2019"),
       es("edat_lfse_04", "sex=T&age=Y25-64&isced11=ED5-8&sinceTimePeriod=2019"),
+      es("apro_cpshr", "strucpro=HPRD_HUMD_EU_THS_T&" + ["C1110", "C1500", "C1300", "W1000", "O1000", "R1000", "R2000", "I1110"].map((c) => "crops=" + c).join("&") + "&sinceTimePeriod=2019"),
+      { ...es("apro_cpshr", "strucpro=AR_THS_HA&crops=W1000&crops=O1000&sinceTimePeriod=2019"), file: "eurostat/apro_cpshr_perm.json" }, // 葡萄、橄榄只报面积
       es("lan_lcv_ovw", "unit=PC&" + ["A00", "B00", "C00", "D00", "E00", "F00", "G00", "H00"].map((c) => "landcover=" + c).join("&") + "&time=2018&time=2022"),
     ],
   },
@@ -91,11 +112,20 @@ export const SOURCES = [
         OPTIONAL { ?item wdt:P1376 ?capital . }
         ${labels("?item", "n")}
       }`),
-      wd("whs", `SELECT ?item ?coord ?whsid ?crit ?n_zh ?n_en WHERE {
+      wd("whs", `SELECT ?item ?coord ?whsid ?crit ?sl ?n_zh ?n_en WHERE {
         ?item wdt:P1435 wd:Q9259 .
+        ?item wikibase:sitelinks ?sl .
         ${box("?item")}
         OPTIONAL { ?item wdt:P757 ?whsid . }
         OPTIONAL { ?item wdt:P2614 ?crit . }
+        ${labels("?item", "n")}
+      }`),
+      wd("mines", `SELECT ?item ?coord ?kind ?product ?productLabel ?sl ?end ?n_zh ?n_en WHERE {
+        VALUES ?kind { wd:Q820477 wd:Q959309 wd:Q211748 }
+        ?item wdt:P31 ?kind . ?item wikibase:sitelinks ?sl .
+        ${box("?item")}
+        OPTIONAL { ?item wdt:P1056 ?product . ?product rdfs:label ?productLabel FILTER(LANG(?productLabel) = "en") }
+        OPTIONAL { ?item wdt:P576 ?end . }
         ${labels("?item", "n")}
       }`),
       wd("power", `SELECT ?item ?coord ?kind ?watts ?use ?end ?closed ?badType ?n_zh ?n_en WHERE {

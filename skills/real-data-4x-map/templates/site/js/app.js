@@ -1,5 +1,5 @@
 // 主程序:加载数据、相机与交互、透镜、面板、搜索、百科、分享。
-import { hexGeometry, createRenderer, mix } from "./render.js";
+import { hexGeometry, createRenderer, mix, cityTag, DISTRICT_TAG, RES_ICON, RES_NAME, POWER_NAME } from "./render.js";
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -12,11 +12,11 @@ const fmtEur = (m) => (m == null ? "—" : m >= 1e6 ? `${(m / 1e6).toFixed(2)}�
 const fmtPop = (p) => (p == null ? "—" : p >= 1e8 ? `${(p / 1e8).toFixed(2)}亿` : p >= 1e4 ? `${nf.format(Math.round(p / 1e4))}万` : nf.format(p));
 const fmtYield = (key, v) => (key === "gold" ? fmtEur(v) : fmtPeople(v) + (v == null ? "" : "人"));
 
-const [world, regions, cities, places, meta, sources] = await Promise.all(["world", "regions", "cities", "places", "meta", "sources"].map(load));
+const [world, regions, cities, places, meta, sources, features] = await Promise.all(["world", "regions", "cities", "places", "meta", "sources", "features"].map(load));
 const H = hexGeometry(world);
 const C = world.cells;
 const canvas = $("#map");
-const R = createRenderer(canvas, { world, cities, places }, H);
+const R = createRenderer(canvas, { world, cities, places, features, regions }, H);
 const cityById = new Map(cities.map((c) => [c.id, c]));
 const YI = Object.fromEntries(meta.yields.map((y) => [y.key, y]));
 const DI = Object.fromEntries(meta.districts.map((d) => [d.key, d]));
@@ -25,7 +25,7 @@ const countryName = (code) => world.countries.find((c) => c.code === code)?.name
 // ---------- 状态 ----------
 const fit = () => { const vw = canvas.clientWidth, vh = canvas.clientHeight - 46; return Math.min(vw / H.width, vh / (H.height * 0.82)); };
 const view = { cx: H.width * 0.45, cy: H.height * 0.53, s: fit() * 0.97 };
-const state = { lens: null, selCity: null, selRegion: null, rivers: true, wonders: true, resources: true };
+const state = { lens: null, selCity: null, selRegion: null, rivers: true, wonders: true, resources: true, transport: true };
 let lensColors = null, lensValues = null, lensDef = null, lensLegend = null;
 
 // ---------- 透镜 ----------
@@ -85,7 +85,7 @@ function buildLensDock() {
   }
   $("#lens-list").innerHTML = h;
   $("#lens-list").addEventListener("click", (e) => { const b = e.target.closest(".lens-btn"); if (b) setLens(b.dataset.id || null); });
-  const tg = [["rivers", "河流"], ["wonders", "奇观"], ["resources", "资源"]];
+  const tg = [["transport", "交通"], ["rivers", "河流"], ["wonders", "奇观"], ["resources", "资源"]];
   $("#toggles").innerHTML = tg.map(([k, n]) => `<label><input type="checkbox" data-k="${k}" checked>${n}</label>`).join("");
   $("#toggles").addEventListener("change", (e) => { state[e.target.dataset.k] = e.target.checked; draw(); });
 }
@@ -96,7 +96,7 @@ function draw() {
   if (raf) return;
   raf = requestAnimationFrame(() => {
     raf = 0;
-    R.draw(view, { lensColors, lensKey: state.lens, lensLevel: lensDef?.level, selCity: state.selCity, selRegion: state.selRegion, rivers: state.rivers, wonders: state.wonders, resources: state.resources });
+    R.draw(view, { lensColors, lensKey: state.lens, lensLevel: lensDef?.level, selCity: state.selCity, selRegion: state.selRegion, rivers: state.rivers, wonders: state.wonders, resources: state.resources, transport: state.transport });
   });
 }
 window.addEventListener("resize", draw);
@@ -163,7 +163,15 @@ window.addEventListener("keydown", (e) => {
 const tip = $("#tooltip");
 function hideTip() { tip.hidden = true; }
 function cellAt(sx, sy) { const [gx, gy] = toGrid(sx, sy); return H.locate(gx, gy); }
-function bannerAt(sx, sy) { return R.banners().find(({ rect: [x, y, w, h] }) => sx >= x && sx <= x + w && sy >= y && sy <= y + h); }
+function hitAt(sx, sy) {
+  const hs = R.hits();
+  for (let k = hs.length - 1; k >= 0; k--) {
+    const h = hs[k];
+    if (h.rect) { const [x, y, w, hh] = h.rect; if (sx >= x && sx <= x + w && sy >= y && sy <= y + hh) return h.info; }
+    else if (Math.hypot(sx - h.x, sy - h.y) <= h.r) return h.info;
+  }
+  return null;
+}
 function terrainText(i) {
   const T = world.tables;
   if (C.water[i] !== 0) return T.water[C.water[i]].name;
@@ -172,23 +180,31 @@ function terrainText(i) {
   if (C.feature[i]) parts.push(T.feature[C.feature[i]].name);
   return parts.join(" · ") + (C.elev[i] !== -9999 ? ` · ${nf.format(C.elev[i])} 米` : "");
 }
+function infoTip(o) {
+  const d = o.d;
+  if (o.t === "city") return `<b>${esc(d.name)}</b> <span class="muted">${esc(d.name_en || "")}</span><br>${esc(countryName(d.cntr))} · 人口 ${fmtPop(d.pop)}`;
+  if (o.t === "wonder") return `<b>${d.natural ? "🏞️" : "🏛️"} ${esc(d.name)}</b><br><span class="muted">世界遗产${d.tier === 1 ? " · 大奇观" : ""}</span>`;
+  if (o.t === "power") return `<b>${esc(POWER_NAME[d.kind])}</b> · ${nf.format(d.mw)} MW<br>${esc(d.count ? `${d.count} 座机组汇总` : d.name)}`;
+  if (o.t === "airport") return `<b>✈️ ${esc(d.name)}</b>${d.iata ? ` · ${esc(d.iata)}` : ""}`;
+  if (o.t === "port") return `<b>⚓ ${esc(d.name)}</b><br><span class="muted">港口</span>`;
+  if (o.t === "mine") return `<b>${RES_ICON[d.kind] || "⛏️"} ${esc(RES_NAME[d.kind] || "矿产")}</b>${d.name ? `<br>${esc(d.name)}` : ""}`;
+  if (o.t === "agri") return `<b>${RES_ICON[d.kind]} ${esc(RES_NAME[d.kind])}</b><br>${esc(regions.r2[d.r2]?.name || "")} · ${d.kind === "timber" ? "林地覆盖居欧洲前列" : "产量居欧洲前列"}`;
+  return "";
+}
 function hover(sx, sy) {
-  const b = bannerAt(sx, sy);
-  if (b) { const c = cityById.get(b.id); showTip(sx, sy, `<b>${esc(c.name)}</b> <span class="muted">${esc(c.name_en || "")}</span><br>${esc(countryName(c.cntr))} · 人口 ${fmtPop(c.pop)}<br><span class="muted">点击查看城市</span>`); return; }
+  const o = hitAt(sx, sy);
+  if (o) return showTip(sx, sy, infoTip(o));
   const i = cellAt(sx, sy);
   if (i < 0) return hideTip();
   let h = `<span class="muted">${esc(terrainText(i))}</span>`;
   if (C.water[i] === 0) {
-    if (C.fog[i]) h = `<b>${esc(countryName(world.countries[C.country[i]]?.code))}</b> · 迷雾<br>${h}<br><span class="muted">不在 Eurostat NUTS 覆盖内,无数据</span>`;
+    if (C.fog[i]) h = `<b>${esc(countryName(world.countries[C.country[i]]?.code))}</b><br>${h}`;
     else {
       const r3 = C.r3[i] >= 0 ? regions.r3[C.r3[i]] : null, r2 = C.r2[i] >= 0 ? regions.r2[C.r2[i]] : null;
-      h = `<b>${esc(r3?.name || r2?.name || "")}</b> <span class="muted">${esc(r3?.id || r2?.id || "")}</span><br>${esc(countryName(world.countries[C.country[i]]?.code))}${r2 && r3 ? " · " + esc(r2.name) : ""}<br>${h}`;
-      if (lensDef) { const v = lensValues[i]; h += `<br>${esc(lensDef.name)}:<b>${v == null ? "无数据" : lensDef.scale === "cat" ? esc(lensDef.cats[v][0]) : (Math.abs(v) >= 100 ? nf.format(Math.round(v)) : (+v.toFixed(2))) + " " + esc(lensDef.unit)}</b>`; }
+      h = `<b>${esc(r3?.name || r2?.name || "")}</b><br>${esc(countryName(world.countries[C.country[i]]?.code))}${r2 && r3 ? " · " + esc(r2.name) : ""}<br>${h}`;
+      if (lensDef) { const v = lensValues[i]; h += `<br>${esc(lensDef.name)}:<b>${v == null ? "—" : lensDef.scale === "cat" ? esc(lensDef.cats[v][0]) : (Math.abs(v) >= 100 ? nf.format(Math.round(v)) : (+v.toFixed(2))) + " " + esc(lensDef.unit)}</b>`; }
     }
   }
-  const w = places.wonders.find((x) => x.cell === i), rs = places.resources.find((x) => x.cell === i);
-  if (w && state.wonders) h += `<br>${w.natural ? "🏞️" : "🏛️"} ${esc(w.name)}`;
-  if (rs && state.resources) h += `<br>${rs.kind === "nuclear" ? "☢️ 核电站" : "💧 水电站"} ${esc(rs.name)}${rs.mw ? ` · ${nf.format(Math.round(rs.mw))} MW` : ""} <span class="muted">· 状态${esc(rs.status || "未标注")}</span>`;
   showTip(sx, sy, h);
 }
 function showTip(sx, sy, html) {
@@ -198,8 +214,8 @@ function showTip(sx, sy, html) {
 }
 function click(sx, sy) {
   hideTip();
-  const b = bannerAt(sx, sy);
-  if (b) return openCity(b.id);
+  const o = hitAt(sx, sy);
+  if (o?.t === "city") return openCity(o.d.id);
   const i = cellAt(sx, sy);
   if (i < 0 || C.water[i] !== 0) return closePanel();
   const c = cities.find((x) => x.cell === i);
@@ -208,90 +224,125 @@ function click(sx, sy) {
   if (C.r3[i] >= 0) openRegion("r3", C.r3[i]); else if (C.r2[i] >= 0) openRegion("r2", C.r2[i]);
 }
 
-// ---------- 面板 ----------
+// ---------- 面板(城市视图) ----------
 const panel = $("#panel");
 function closePanel() { panel.hidden = true; state.selCity = null; state.selRegion = null; draw(); syncHash(); }
 panel.addEventListener("click", (e) => {
   if (e.target.closest("[data-close]")) closePanel();
   const j = e.target.closest("[data-city]"); if (j) { openCity(j.dataset.city); flyToCity(cityById.get(j.dataset.city)); }
   const r = e.target.closest("[data-r3]"); if (r) openRegion("r3", +r.dataset.r3);
+  const t = e.target.closest("[data-tab]");
+  if (t) { panel.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b === t)); panel.querySelectorAll("[data-pane]").forEach((p) => (p.hidden = p.dataset.pane !== t.dataset.tab)); }
 });
-const SECTORS = [["agri", "农林渔", "#8bc34a"], ["industry", "工业", "#e08a3c"], ["construction", "建筑", "#b8733a"], ["trade", "商贸运输餐旅", "#d9b56a"], ["info", "信息通信", "#4fa3e0"], ["finance", "金融", "#5a6fd0"], ["realestate", "地产", "#8a7bd0"], ["professional", "专业科研与行政", "#2fa3a3"], ["public", "公共管理教育卫生", "#9aa6b8"], ["arts", "艺术娱乐等", "#c27bd6"]];
-function yieldsBlock(r) {
-  const est = new Set(r.jobs_estimated || []);
-  const estOf = { science: est.has("J") || est.has("M_N"), culture: est.has("R-U") };
-  return `<div class="ygrid">${meta.yields.map((y) => `<div title="${esc(y.desc)}">${y.icon}<b>${y.key === "gold" ? fmtEur(r.yields[y.key]) : fmtPeople(r.yields[y.key])}${estOf[y.key] ? '<span class="est">估</span>' : ""}</b>${esc(y.label)}</div>`).join("")}</div>
-  <div class="note">粮食/生产力/科技/文化 = 相应行业就业人数(${r.jobs_year ?? "—"} 年);金币 = GDP(${r.gdp_year ?? "—"} 年)。</div>`;
-}
-function jobsBlock(r) {
-  if (!r.jobs) return `<div class="note">本地区无分行业就业数据。</div>`;
+// 就业小人:每个小人代表固定人数;行业配图标与颜色
+const SECTORS = [
+  ["agri", "农民", "🧑‍🌾", "#8bc34a"], ["industry", "工人", "👷", "#e08a3c"], ["construction", "建筑工", "🧱", "#b8733a"],
+  ["trade", "商贸与运输", "🧑‍💼", "#d9b56a"], ["info", "程序员", "🧑‍💻", "#4fa3e0"], ["finance", "金融", "💼", "#5a6fd0"],
+  ["realestate", "地产", "🏠", "#8a7bd0"], ["professional", "工程师与研究员", "🧑‍🔬", "#2fa3a3"], ["public", "教师、医生与公务员", "🧑‍🏫", "#9aa6b8"], ["arts", "艺术与娱乐", "🧑‍🎨", "#c27bd6"],
+];
+// 全欧平均就业结构(按有数据地区合计)
+const EU_SHARE = (() => { const sum = {}; let tot = 0; for (const r of regions.r3) if (r.jobs && SECTORS.every(([k]) => r.jobs[k] != null)) { tot += r.jobs.total; for (const [k] of SECTORS) sum[k] = (sum[k] || 0) + r.jobs[k]; } return Object.fromEntries(SECTORS.map(([k]) => [k, sum[k] / tot])); })();
+// 城市排名(按辖区数据)
+const rankOf = (() => {
+  const metric = { pop: (c) => c.pop, gdp: (c) => regions.r3[c.r3].gdp, pps: (c) => regions.r3[c.r3].gdp_pc_pps, sci: (c) => regions.r3[c.r3].yields.science };
+  const out = {};
+  for (const [k, f] of Object.entries(metric)) { const arr = cities.filter((c) => c.primary && f(c) != null).sort((a, b) => f(b) - f(a)); out[k] = new Map(arr.map((c, i) => [c.id, i + 1])); }
+  return (k, id) => out[k].get(id);
+})();
+const medal = (rank, label) => { if (!rank) return ""; const cls = rank <= 10 ? "gold" : rank <= 50 ? "silver" : "bronze"; return `<div class="medal ${cls}"><b>#${rank}</b><span>${label}</span></div>`; };
+function workforce(r) {
+  if (!r.jobs) return "";
   const tot = r.jobs.total;
-  const segs = SECTORS.map(([k, n, col]) => [k, n, col, r.jobs[k] ?? 0]).filter((s) => s[3] > 0);
-  return `<div class="bars">${segs.map(([, n, col, v]) => `<span title="${n} ${fmtPeople(v)}人" style="width:${(v / tot) * 100}%;background:${col}"></span>`).join("")}</div>
-  <div class="barlegend">${segs.map(([k, n, col, v]) => `<span><i style="background:${col}"></i>${n} ${((v / tot) * 100).toFixed(1)}%${(r.jobs_estimated || []).some((e) => ({ info: "J", finance: "K", professional: "M_N", arts: "R-U" })[k] === e) ? "(估)" : ""}</span>`).join("")}</div>
-  <div class="note">总就业 ${fmtPeople(tot)}人。</div>`;
+  const rows = SECTORS.map(([k, n, ic, col]) => [k, n, ic, col, r.jobs[k] ?? 0]);
+  const other = Math.max(0, tot - rows.reduce((t, x) => t + x[4], 0));
+  if (other / tot > 0.005) rows.push(["other", "其他", "🧑", "#5d6676", other]);
+  const per = tot / 24;
+  let figs = "", acc = 0, shown = 0;
+  for (const [, , ic, , v] of rows) { acc += v / per; const n = Math.round(acc) - shown; shown += n; figs += `<span>${ic}</span>`.repeat(Math.max(0, n)); }
+  const local = rows.map(([, , , col, v]) => `<span style="width:${((v / tot) * 100).toFixed(2)}%;background:${col}"></span>`).join("");
+  const eu = SECTORS.map(([k, , , col]) => `<span style="width:${(EU_SHARE[k] * 100).toFixed(2)}%;background:${col}"></span>`).join("");
+  return `<div class="card"><div class="card-h">劳动力 <small>按行业</small></div>
+    <div class="figs">${figs}</div>
+    <div class="cmp"><i>本地</i><div class="bars">${local}</div></div>
+    <div class="cmp"><i>欧洲</i><div class="bars">${eu}</div></div>
+    <div class="note">每个小人 ≈ ${fmtPeople(per)}人 · 共 ${fmtPeople(tot)}人</div>
+    <div class="barlegend">${rows.filter((x) => x[4] > 0).map(([, n, , col, v]) => `<span><i style="background:${col}"></i>${n} ${((v / tot) * 100).toFixed(0)}%</span>`).join("")}</div></div>`;
 }
-function r2Block(r2) {
+const statCard = (label, value, sub) => `<div class="stat"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+function r2Cards(r2) {
   if (!r2) return "";
-  const row = (k, v, y) => `<dt>${k}</dt><dd>${v}${y ? ` <small style="color:var(--muted)">${y}</small>` : ""}</dd>`;
-  return `<h3>所在大区 · ${esc(r2.name)} <small>${r2.id}</small></h3><dl class="kv">
-    ${row("人均 GDP(PPS,欧盟=100)", r2.gdp_pc_pps ?? "—", r2.gdp_pc_pps_year)}
-    ${row("凝聚政策档位(测算)", r2.cohesion == null ? "—" : ["欠发达", "转型", "较发达"][r2.cohesion], "")}
-    ${row("失业率", r2.unemp == null ? "—" : r2.unemp + "%", r2.unemp_year)}
-    ${row("研发投入 / GDP", r2.rd_pct == null ? "—" : r2.rd_pct + "%", r2.rd_year)}
-    ${row("高等教育(25–64 岁)", r2.tertiary == null ? "—" : r2.tertiary + "%", r2.tertiary_year)}
-    ${row("游客过夜 / 千人", r2.nights_pc == null ? "—" : nf.format(r2.nights_pc), r2.nights_year)}
-    ${row("林地 / 耕地", `${r2.lc.wood ?? "—"}% / ${r2.lc.crop ?? "—"}%`, r2.lc_year)}
-  </dl>`;
+  const card = (v, label, eu) => `<div class="mini"><b>${v}</b><span>${label}</span>${eu ? `<small>${eu}</small>` : ""}</div>`;
+  return `<div class="card"><div class="card-h">所在大区 <small>${esc(r2.name)}</small></div><div class="minis">
+    ${card(r2.gdp_pc_pps == null ? "—" : r2.gdp_pc_pps, "人均 GDP 购买力", "欧盟 = 100")}
+    ${card(r2.unemp == null ? "—" : r2.unemp + "%", "失业率", "")}
+    ${card(r2.tertiary == null ? "—" : r2.tertiary + "%", "大学学历", "25–64 岁")}
+    ${card(r2.rd_pct == null ? "—" : r2.rd_pct + "%", "研发投入", "占 GDP")}
+    ${card(r2.nights_pc == null ? "—" : nf.format(Math.round(r2.nights_pc / 1000)) + " 晚", "游客过夜", "每位居民")}
+    ${card(r2.lc.wood == null ? "—" : r2.lc.wood + "%", "林地", "")}
+  </div></div>`;
 }
-function wondersIn(r3index) {
+function nearby(r3index) {
   const ws = places.wonders.filter((w) => w.r3 === r3index);
-  return ws.length ? `<h3>奇观(世界遗产)</h3>${ws.map((w) => `<div class="district"><span class="ic">${w.natural ? "🏞️" : "🏛️"}</span><div>${esc(w.name)}${w.name_en && w.name_en !== w.name ? `<small>${esc(w.name_en)}</small>` : ""}</div></div>`).join("")}` : "";
+  const cell = new Set(); for (let i = 0; i < C.r3.length; i++) if (C.r3[i] === r3index) cell.add(i);
+  const res = [...features.mines.map((m) => ({ ic: RES_ICON[m.kind] || "⛏️", n: RES_NAME[m.kind], s: m.name, cell: m.cell })), ...features.agri.map((a) => ({ ic: RES_ICON[a.kind], n: RES_NAME[a.kind], s: "", cell: a.cell })), ...features.power.map((p) => ({ ic: { nuclear: "☢️", coal: "🏭", gas: "🔥", oil: "🛢️", hydro: "💧", wind: "🌬️", solar: "☀️" }[p.kind], n: POWER_NAME[p.kind], s: `${nf.format(p.mw)} MW`, cell: p.cell }))].filter((x) => cell.has(x.cell));
+  return `${ws.length ? `<div class="card"><div class="card-h">奇观</div>${ws.map((w) => `<div class="district"><span class="ic">${w.natural ? "🏞️" : "🏛️"}</span><div>${esc(w.name)}${w.name_en && w.name_en !== w.name ? `<small>${esc(w.name_en)}</small>` : ""}</div></div>`).join("")}</div>` : ""}
+    ${res.length ? `<div class="card"><div class="card-h">资源</div><div class="chips">${res.map((x) => `<span class="chip">${x.ic} ${esc(x.n)}${x.s ? ` · ${esc(x.s)}` : ""}</span>`).join("")}</div></div>` : ""}`;
 }
 function openCity(id) {
   const c = cityById.get(id); if (!c) return;
   const r = regions.r3[c.r3], r2 = r.r2 >= 0 ? regions.r2[r.r2] : null;
   state.selCity = id; state.selRegion = { level: "r3", index: c.r3 };
+  const tag = cityTag(c);
+  const col = world.countries.find((k) => k.code === c.cntr)?.color || "#888";
   const shared = cities.filter((x) => x.r3 === c.r3 && x.id !== c.id);
+  const gdpPer = r.gdp != null && r.pop ? Math.round((r.gdp * 1e6) / r.pop) : null;
   panel.innerHTML = `<button class="close" data-close>✕</button>
-    <h2>${c.capital ? "★ " : ""}${esc(c.name)}</h2>
-    <div class="sub">${esc(c.name_en || "")} · ${esc(countryName(c.cntr))} · 人口 ${fmtPop(c.pop)}(维基数据)</div>
-    <h3>辖区产出 · ${esc(r.name)} <small>${r.id}</small></h3>${yieldsBlock(r)}
-    ${shared.length ? `<div class="note">同一 NUTS3 辖区内还有:${shared.map((x) => `<span class="chip" data-city="${x.id}">${esc(x.name)}</span>`).join(" ")}(产出为整个辖区合计)</div>` : ""}
-    <h3>区域</h3>${c.districts.length ? c.districts.map((d) => `<div class="district"><span class="ic">${DI[d.key].icon}</span><div>${esc(DI[d.key].label)}<small>${esc(d.why)}</small></div></div>`).join("") : `<div class="note">未达到任何区域的判定阈值。</div>`}
-    <h3>人口与经济</h3><dl class="kv">
-      <dt>辖区人口</dt><dd>${fmtPop(r.pop)} <small style="color:var(--muted)">${r.pop_year ?? ""}</small></dd>
-      <dt>人口密度</dt><dd>${r.density == null ? "—" : nf.format(Math.round(r.density)) + " 人/km²"}</dd>
-      <dt>人均 GDP(PPS,欧盟=100)</dt><dd>${r.gdp_pc_pps ?? "—"} <small style="color:var(--muted)">${r.gdp_pc_pps_year ?? ""}</small></dd>
-    </dl>
-    <h3>就业结构</h3>${jobsBlock(r)}
-    ${r2Block(r2)}${wondersIn(c.r3)}
-    <div class="note">数据:Eurostat、维基数据。每个数字的来源与规则见「百科」。</div>`;
+    <div class="hero">
+      <div class="kicker">城市 · ${esc(countryName(c.cntr))}</div>
+      <div class="hero-row">
+        <div class="hexbadge" style="--c:${col}"><span>${Math.round(c.pop / 1e4)}万</span></div>
+        <div><h2>${c.capital ? "★ " : ""}${esc(c.name)}</h2><div class="sub">${esc(c.name_en || "")} · ${esc(r.name)}</div>
+          ${tag ? `<span class="tagpill ${tag}">${DI[tag]?.icon || ""} ${DISTRICT_TAG[tag]}</span>` : ""}</div>
+      </div>
+      <div class="stats">${statCard("👥 辖区人口", fmtPop(r.pop), r.pop_year ? `${r.pop_year} 年` : "")}${statCard(`💰 GDP ${r.gdp_year ?? ""}`, fmtEur(r.gdp), gdpPer ? `人均 €${nf.format(gdpPer)}` : "")}</div>
+      <div class="medals">${medal(rankOf("pop", c.id), "人口")}${medal(rankOf("gdp", c.id), "GDP")}${medal(rankOf("pps", c.id), "人均购买力")}${medal(rankOf("sci", c.id), "科技")}</div>
+    </div>
+    <nav class="tabs"><button data-tab="citizens" class="on">👥 市民</button><button data-tab="districts">🏛️ 区域</button><button data-tab="economy">💰 经济</button><button data-tab="region">🗺️ 大区</button></nav>
+    <section data-pane="citizens">${workforce(r) || `<div class="note">暂无分行业就业数据。</div>`}${nearby(c.r3)}</section>
+    <section data-pane="districts" hidden>${c.districts.length ? c.districts.map((d) => `<div class="district big"><span class="ic">${DI[d.key].icon}</span><div>${esc(DI[d.key].label)}<small>${esc(d.why)}</small></div></div>`).join("") : `<div class="note">还没有特色区域。</div>`}</section>
+    <section data-pane="economy" hidden><div class="card"><div class="card-h">产出 <small>${esc(r.name)}</small></div>${yieldsGrid(r)}</div>
+      ${shared.length ? `<div class="card"><div class="card-h">同辖区城市</div><div class="chips">${shared.map((x) => `<span class="chip" data-city="${x.id}">${esc(x.name)}</span>`).join("")}</div></div>` : ""}</section>
+    <section data-pane="region" hidden>${r2Cards(r2)}</section>`;
   panel.hidden = false; draw(); syncHash();
+}
+function yieldsGrid(r) {
+  const est = new Set(r.jobs_estimated || []);
+  const estOf = { science: est.has("J") || est.has("M_N"), culture: est.has("R-U") };
+  return `<div class="ygrid">${meta.yields.map((y) => `<div title="${esc(y.desc)}">${y.icon}<b>${y.key === "gold" ? fmtEur(r.yields[y.key]) : fmtPeople(r.yields[y.key])}${estOf[y.key] ? '<span class="est">估</span>' : ""}</b>${esc(y.label)}</div>`).join("")}</div>`;
 }
 function openRegion(level, index) {
   const r = regions[level][index];
   state.selCity = null; state.selRegion = { level, index };
   const r2 = level === "r3" ? (r.r2 >= 0 ? regions.r2[r.r2] : null) : r;
   const cs = level === "r3" ? cities.filter((c) => c.r3 === index) : [];
+  const col = world.countries.find((k) => k.code === r.cntr)?.color || "#888";
   panel.innerHTML = `<button class="close" data-close>✕</button>
-    <h2>${esc(r.name)}</h2><div class="sub">${r.id} · ${level === "r3" ? "NUTS3 地区" : "NUTS2 大区"} · ${esc(countryName(r.cntr))}</div>
-    ${level === "r3" ? `<h3>产出</h3>${yieldsBlock(r)}
-      <h3>人口与经济</h3><dl class="kv"><dt>人口</dt><dd>${fmtPop(r.pop)} <small style="color:var(--muted)">${r.pop_year ?? ""}</small></dd>
-      <dt>面积</dt><dd>${r.area == null ? "—" : nf.format(r.area) + " km²"}${r.area_src === "geometry" ? " <small>(按边界估)</small>" : ""}</dd>
-      <dt>人口密度</dt><dd>${r.density == null ? "—" : nf.format(Math.round(r.density)) + " 人/km²"}</dd>
-      <dt>人均 GDP(PPS,欧盟=100)</dt><dd>${r.gdp_pc_pps ?? "—"}</dd></dl>
-      ${cs.length ? `<h3>城市</h3><div class="chips">${cs.map((c) => `<span class="chip" data-city="${c.id}">${esc(c.name)} ${fmtPop(c.pop)}</span>`).join("")}</div>` : ""}
-      <h3>就业结构</h3>${jobsBlock(r)}` : `<div class="note">该国在 NUTS 中只划到 NUTS2 级,没有 NUTS3 地区数据。</div>`}
-    ${r2Block(r2)}${level === "r3" ? wondersIn(index) : ""}`;
+    <div class="hero"><div class="kicker">地区 · ${esc(countryName(r.cntr))}</div>
+      <div class="hero-row"><div class="hexbadge" style="--c:${col}"><span>${r.pop ? Math.round(r.pop / 1e4) + "万" : "—"}</span></div>
+      <div><h2>${esc(r.name)}</h2><div class="sub">${r.id}${r2 && level === "r3" ? " · " + esc(r2.name) : ""}</div></div></div>
+      ${level === "r3" ? `<div class="stats">${statCard("👥 人口", fmtPop(r.pop), r.pop_year ? `${r.pop_year} 年` : "")}${statCard("📐 人口密度", r.density == null ? "—" : nf.format(Math.round(r.density)), "人 / km²")}</div>` : ""}
+    </div>
+    ${level === "r3" ? `<div class="card"><div class="card-h">产出</div>${yieldsGrid(r)}</div>
+      ${cs.length ? `<div class="card"><div class="card-h">城市</div><div class="chips">${cs.map((c) => `<span class="chip" data-city="${c.id}">${esc(c.name)} ${fmtPop(c.pop)}</span>`).join("")}</div></div>` : ""}
+      ${workforce(r)}${nearby(index)}` : ""}
+    ${r2Cards(r2)}`;
   panel.hidden = false; draw(); syncHash();
 }
 function openFog(i) {
   const c = world.countries[C.country[i]];
   state.selCity = null; state.selRegion = null;
-  panel.innerHTML = `<button class="close" data-close>✕</button><h2>${esc(c?.name || "")}</h2><div class="sub">迷雾 · 尚未探索</div>
-    <p>这里不在 Eurostat 的 NUTS 统计区划内(英国脱欧后不再列入,乌克兰、白俄罗斯等不属于 NUTS 体系),所以本图没有它的产出与透镜数据,只按海拔和纬度粗画了地形。</p>
-    <p class="note">${esc(terrainText(i))}</p>`;
+  panel.innerHTML = `<button class="close" data-close>✕</button><div class="hero"><div class="kicker">迷雾</div><h2>${esc(c?.name || "")}</h2>
+    <div class="sub">${esc(terrainText(i))}</div></div><p>尚未探索的土地。</p>`;
   panel.hidden = false; draw();
 }
 function flyToCity(c) { if (!c) return; view.cx = c.x; view.cy = c.y; view.s = Math.max(view.s, 0.9); clampView(); draw(); }
@@ -350,8 +401,11 @@ const PAGES = {
   terrain: ["地形", () => { const T = world.tables; const tb = (arr) => arr.filter((t) => t.rule).map((t) => `<tr><td>${t.color ? `<span class="sw" style="background:${t.color}"></span>` : ""}${esc(t.name)}</td><td>${esc(t.rule)}</td></tr>`).join(""); return `<h2>地形</h2><table><tr><th>水陆</th><th>规则</th></tr>${tb(T.water)}</table><br><table><tr><th>底色</th><th>规则</th></tr>${tb(T.terrain)}</table><br><table><tr><th>起伏</th><th>规则</th></tr>${tb(T.relief)}</table><br><table><tr><th>地貌</th><th>规则</th></tr>${tb(T.feature)}</table>
     <p class="note">「按比例分配」:在每个 NUTS2 大区内,用确定性的平滑噪声给格子排序,取前 k 格,k = 该大区该类土地占比 × 格数。所以大区整体比例与 LUCAS 调查一致,但具体哪一格是森林是示意,不是卫星判读。</p>`; }],
   wonders: ["奇观与资源", () => `<h2>奇观与资源</h2>
-    <p>🏛️/🏞️ <b>奇观</b> = 联合国教科文组织世界遗产(维基数据「遗产级别 P1435 = 世界遗产」),共 ${places.wonders.length} 处;多地点的系列遗产取第一个组成部分的位置。自然/文化之分按名称关键词(公园、森林、山、湖、海岸、洞穴等)粗分,可能有误。</p>
-    <p>☢️ <b>核电站</b>、💧 <b>水电站(≥ 300 MW)</b> 来自维基数据。排除了运行状态标为退役、关闭、停运、在建、规划的条目,以及带关闭日期或解散日期的条目;多数电站在维基数据里没有运行状态字段,所以本图只能保证它们「未被标为关闭」,不能保证都在运行。共 ${places.resources.length} 处。维基数据的装机与状态并不完整,仅作示意。</p>`],
+    <p>🏛️ <b>奇观</b>:联合国教科文组织世界遗产,共 ${places.wonders.length} 处。按维基百科各语言条目数排知名度:前 40 处是「大奇观」,缩小看全图时就会出现;其余放大后逐级显示。</p>
+    <p>⚡ <b>电厂</b>:来自 powerplantmatching 欧洲电厂库,共 ${features.power.length} 处——核电、煤电(含褐煤)、燃气、燃油、水电单厂;风电和光伏按格汇总成「风电场群」「光伏电站群」。缩小时只显示 1500 MW 以上的大厂。</p>
+    <p>⛏️ <b>矿产与油田</b>:来自维基数据,按产出归类为煤、铁、铜、金、银、盐、钾盐、铀、铅锌等,共 ${features.mines.length} 处。</p>
+    <p>🌾 <b>农业与林业资源</b>:按 Eurostat 各大区作物产量(葡萄、橄榄按种植面积)算单位面积产量,每种作物排在全欧前 15% 的大区放 1–2 个资源;林地超过 55% 的大区放木材。共 ${features.agri.length} 处。</p>
+    <p>✈️ 机场、⚓ 港口、公路与铁路来自 Natural Earth。</p>`],
   lenses: ["透镜", () => `<h2>透镜</h2><table><tr><th>透镜</th><th>层级</th><th>含义与来源</th></tr>${meta.lenses.map((l) => `<tr><td>${esc(l.name)}</td><td>${l.level === "r3" ? "NUTS3" : l.level === "r2" ? "NUTS2" : "每格"}</td><td>${esc(l.desc)}</td></tr>`).join("")}</table><p class="note">配色区间取有数据格子的 2%–98% 分位,极端值被压到两端。</p>`],
   sources: ["数据源", () => `<h2>数据源</h2><table><tr><th>数据</th><th>用途</th><th>许可</th></tr>${sources.map((s) => `<tr><td><a href="${esc(s.homepage)}" target="_blank" rel="noopener">${esc(s.title)}</a><br><small>${esc(s.publisher)}</small></td><td>${esc(s.used_for)}</td><td>${esc(s.license)}</td></tr>`).join("")}</table>
     <p class="note">行政边界 © EuroGeographics for the administrative boundaries。统计数据来源:Eurostat,经本项目加工(选年份、估算细分行业、映射为游戏术语);加工后的数据与 Eurostat 无关,Eurostat 不对其承担责任。</p>`],

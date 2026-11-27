@@ -296,6 +296,7 @@ if (cityRows) {
     const cell = grid.locate(x, y);
     if (!c.zh && !c.en) continue; // 无任何名称的条目(只有 Q 号)不要
     if (c.pop < 100000) continue; // 按选定的那条人口(不是最大值)判断是否 ≥10 万
+    if (c.pop >= 500000 && c.sl < 40) continue; // 人口很大却几乎没有维基链接:多是录入错误
     if (!statCntr.has(n3[r3].cntr)) continue; // 有边界无统计的国家(科索沃、波黑)不放城市
     kept.push({ ...c, x, y, r3, cell });
   }

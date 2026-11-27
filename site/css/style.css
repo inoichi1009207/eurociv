@@ -115,3 +115,44 @@ button { font: inherit; color: inherit; cursor: pointer; }
   #modal-nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px; }
   #modal-nav button { white-space: nowrap; width: auto; }
 }
+
+/* ---- v0.2 城市视图 ---- */
+.side { padding: 0 0 14px; width: 400px; background: linear-gradient(#1d2738, #121a26 280px); border-left: 3px solid var(--gold); }
+.side > .close { z-index: 2; top: 10px; right: 12px; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: #0e1520; }
+.hero { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
+.kicker { font-size: 11px; letter-spacing: 3px; color: var(--gold); margin-bottom: 8px; }
+.hero-row { display: flex; gap: 14px; align-items: center; }
+.hero h2 { font: 700 26px/1.15 "Noto Serif SC","Source Han Serif SC","Songti SC","STSong","SimSun",serif; letter-spacing: 3px; color: var(--gold-2); margin: 0; }
+.hero .sub { margin: 2px 0 6px; }
+.hexbadge { flex: none; width: 66px; height: 74px; display: grid; place-items: center; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: linear-gradient(#e2c27a, #9a7434); }
+.hexbadge span { width: 58px; height: 66px; display: grid; place-items: center; clip-path: inherit; background: linear-gradient(color-mix(in srgb, var(--c) 80%, white), color-mix(in srgb, var(--c) 70%, black)); color: #fff; font: 700 15px/1 "Noto Serif SC","SimSun",serif; text-shadow: 0 1px 2px #0008; }
+.tagpill { display: inline-block; padding: 3px 14px; border-radius: 14px; font: 700 13px/1.4 "Noto Serif SC","SimSun",serif; letter-spacing: 3px; color: #fbe9c4; background: linear-gradient(#3d63a8, #24427a); border: 1px solid #d9b56a; box-shadow: 0 2px 6px #0006; }
+.tagpill.gov { background: linear-gradient(#a3423a, #6e2422); } .tagpill.industrial { background: linear-gradient(#c0703c, #7e4320); } .tagpill.commercial { background: linear-gradient(#3e8a6a, #23573f); }
+.tagpill.theater, .tagpill.entertainment { background: linear-gradient(#8c56b0, #57306f); } .tagpill.farm { background: linear-gradient(#6f9a3e, #445f22); }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.stat { background: #0e1520; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.stat span { display: block; font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+.stat b { display: block; font: 700 20px/1.3 "Noto Serif SC","SimSun",serif; color: #f6ecd2; }
+.stat small { color: var(--muted); font-size: 11px; }
+.medals { display: flex; justify-content: space-around; margin-top: 12px; }
+.medal { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+.medal b { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font: 700 14px/1 "Noto Serif SC","SimSun",serif; color: #1a1a1a; border: 3px solid #26303f; box-shadow: 0 0 0 2px #8a6a2e, inset 0 -4px 8px #0003; }
+.medal.gold b { background: radial-gradient(circle at 35% 30%, #fff4c8, #d4a83a); } .medal.silver b { background: radial-gradient(circle at 35% 30%, #ffffff, #a9b0b8); } .medal.bronze b { background: radial-gradient(circle at 35% 30%, #f3c9a0, #b06a3a); }
+.tabs { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { background: none; border: 1px solid transparent; border-radius: 6px; padding: 4px 10px; color: var(--muted); white-space: nowrap; }
+.tabs button.on { color: var(--gold-2); border-color: var(--gold); background: #22304a; }
+.side section { padding: 6px 14px; }
+.card { background: #0e1520; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.card-h { font: 700 14px/1.4 "Noto Serif SC","SimSun",serif; letter-spacing: 2px; color: var(--gold); margin-bottom: 6px; }
+.card-h small { font: 12px var(--font); letter-spacing: 0; color: var(--muted); margin-left: 6px; }
+.figs { display: flex; flex-wrap: wrap; gap: 1px; font-size: 19px; line-height: 1.2; margin-bottom: 6px; font-family: "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif; }
+.cmp { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.cmp i { font-style: normal; }
+.cmp .bars { height: 8px; margin: 2px 0; }
+.minis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mini { background: #151f2e; border: 1px solid #2c3a52; border-radius: 6px; padding: 6px 8px; }
+.mini b { display: block; font: 700 17px/1.3 "Noto Serif SC","SimSun",serif; color: #f6ecd2; }
+.mini span { display: block; font-size: 11px; color: var(--gold); } .mini small { font-size: 10px; color: var(--muted); }
+.district.big { background: #0e1520; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.district.big .ic { font-size: 24px; width: 32px; }
+@media (max-width: 720px) { .side { width: auto; } .minis { grid-template-columns: repeat(2, 1fr); } .hero h2 { font-size: 22px; } }
