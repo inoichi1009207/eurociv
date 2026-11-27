@@ -42,7 +42,7 @@ function reconcile(rows, label) {
     tested++; const d = Math.abs(vals.reduce((s, x) => s + x, 0) - t) / t;
     if (d > worst) { worst = d; worstK = `${c}|${y}`; }
   }
-  ok(worst < 0.01 && tested > 30, `${label}:${tested} 个「国家×年」NUTS3 之和对国家值,最大偏差 ${(worst * 100).toFixed(3)}%(${worstK})`);
+  ok(worst < 0.0001 && tested > 30, `${label}:${tested} 个「国家×年」NUTS3 之和对国家值,最大偏差 ${(worst * 100).toFixed(3)}%(${worstK})`);
 }
 reconcile(flatten(readJSON("eurostat/nama_10r_3gdp.json")).filter((r) => r.unit === "MIO_EUR"), "GDP 对账");
 reconcile(flatten(readJSON("eurostat/demo_r_pjanaggr3.json")), "人口对账");
@@ -63,10 +63,10 @@ ok(badEmp.length === 0, `全部地区总就业与原始一致(不一致 ${badEmp
 // 产出语义:分量全缺必须是 null,不得显示 0;有分量时等于分量之和
 const yBad = r3.filter((r) => {
   if (!r.jobs) return false;
-  const chk = (y, parts) => { const v = parts.map((k) => r.jobs[k]); if (v.every((x) => x == null)) return y !== null; return Math.abs(y - v.reduce((s, x) => s + (x ?? 0), 0)) > 0.06; };
+  const chk = (y, parts) => { const v = parts.map((k) => r.jobs[k]); if (v.some((x) => x == null)) return y !== null; return Math.abs(y - v.reduce((s, x) => s + x, 0)) > 0.06; };
   return chk(r.yields.production, ["industry", "construction"]) || chk(r.yields.science, ["info", "professional"]) || chk(r.yields.food, ["agri"]) || chk(r.yields.culture, ["arts"]);
 });
-ok(yBad.length === 0, `产出与就业分量一致、缺数据为空不为 0(违规 ${yBad.length}:${yBad.slice(0, 5).map((r) => r.id).join(",")})`);
+ok(yBad.length === 0, `产出与就业分量一致、任一分量缺失即为空(违规 ${yBad.length}:${yBad.slice(0, 5).map((r) => r.id).join(",")})`);
 const skippedPop = flatten(readJSON("eurostat/demo_r_pjanaggr3.json")).filter((r) => world.skipped.some((s) => s.id === r.geo) && r.time === "2025").reduce((s, r) => s + r.value, 0);
 console.log(`信息:略去的远方地区 2025 年人口合计 ${Math.round(skippedPop / 1e4)} 万`);
 
@@ -97,28 +97,51 @@ for (const [name, id] of expect) {
   }
   ok(tried > 300 && same / tried >= 0.9, `格子归属独立复算:${same}/${tried} 一致`);
 }
-// 区域判定复算:用独立算的全图平均占比重算区位商,每条区域理由都应真的过阈值
+// 区域判定双向复算:独立实现全部 8 条规则,算出的集合必须与发布的完全相同(多给、漏给都算错)
 {
-  const keys = { industrial: ["industry", "construction"], commercial: ["finance", "realestate", "professional"], theater: ["arts"], farm: ["agri"] };
-  const avg = {}; for (const k of ["agri", "industry", "construction", "finance", "realestate", "professional", "arts"]) { let a = 0, d = 0; for (const r of r3) if (r.jobs?.[k] != null) { a += r.jobs[k]; d += r.jobs.total; } avg[k] = a / d; }
-  const th = Object.fromEntries(meta.districts.map((d) => [d.key, d]));
-  const bad = [];
-  for (const c of cities) for (const d of c.districts) {
-    const r = r3[c.r3];
-    if (keys[d.key]) {
-      const v = keys[d.key].reduce((s, k) => s + (r.jobs?.[k] ?? NaN), 0) / r.jobs.total / keys[d.key].reduce((s, k) => s + avg[k], 0);
-      if (!(v >= th[d.key].min_lq - 1e-9)) bad.push(`${c.name}:${d.key}`);
-    }
-    if (d.key === "entertainment" && !(regions.r2[r.r2]?.nights_pc >= th.entertainment.min_nights_pc)) bad.push(`${c.name}:entertainment`);
+  const { makeHexGrid } = await import("./lib/geo.mjs");
+  const grid = makeHexGrid({ r: world.grid.r, cols: world.grid.cols, rows: world.grid.rows });
+  const EST = { info: "J", finance: "K", professional: "M_N", arts: "R-U" };
+  const avg = {};
+  for (const k of ["agri", "industry", "construction", "info", "finance", "realestate", "professional", "arts"]) {
+    let a = 0, d = 0;
+    for (const r of r3) if (r.jobs?.[k] != null && !(EST[k] && r.jobs_estimated.includes(EST[k]))) { a += r.jobs[k]; d += r.jobs.total; }
+    avg[k] = a / d;
   }
-  ok(bad.length === 0, `区域判定复算全部过阈值(违规 ${bad.length}:${bad.slice(0, 5).join(",")})`);
+  const LQ = (r, ks) => { if (!r.jobs) return NaN; const v = ks.reduce((t, k) => t + (r.jobs[k] ?? NaN), 0); return v / r.jobs.total / ks.reduce((t, k) => t + avg[k], 0); };
+  const th = Object.fromEntries(meta.districts.map((d) => [d.key, d]));
+  const diffs = [];
+  for (const c of cities) {
+    const r = r3[c.r3], r2 = r.r2 >= 0 ? regions.r2[r.r2] : null, est = new Set(r.jobs_estimated);
+    const want = new Set();
+    if (c.capital) want.add("gov");
+    if (r2?.rd_pct >= th.campus.min_rd || (LQ(r, ["info", "professional"]) >= th.campus.min_lq && !est.has("J") && !est.has("M_N"))) want.add("campus");
+    if (LQ(r, ["industry", "construction"]) >= th.industrial.min_lq) want.add("industrial");
+    if (LQ(r, ["finance", "realestate", "professional"]) >= th.commercial.min_lq && !est.has("K") && !est.has("M_N")) want.add("commercial");
+    if (LQ(r, ["arts"]) >= th.theater.min_lq && !est.has("R-U")) want.add("theater");
+    if (r2?.nights_pc >= th.entertainment.min_nights_pc) want.add("entertainment");
+    if (c.cell >= 0 && [c.cell, ...grid.neighbors(c.cell)].some((j) => j >= 0 && world.cells.water[j] === 2)) want.add("harbor");
+    if (LQ(r, ["agri"]) >= th.farm.min_lq) want.add("farm");
+    const got = new Set(c.districts.map((d) => d.key));
+    for (const k of want) if (!got.has(k)) diffs.push(`${c.name} 漏 ${k}`);
+    for (const k of got) if (!want.has(k)) diffs.push(`${c.name} 多 ${k}`);
+  }
+  ok(diffs.length === 0, `区域判定独立复算与发布完全一致(差异 ${diffs.length}:${diffs.slice(0, 6).join(",")})`);
+}
+// 网格父子一致:每格的 NUTS3 必须属于该格的 NUTS2
+{
+  let bad = 0; for (let i = 0; i < n; i++) { const k3 = world.cells.r3[i], k2 = world.cells.r2[i]; if (k3 >= 0 && (k2 < 0 || !r3[k3].id.startsWith(regions.r2[k2].id))) bad++; }
+  ok(bad === 0, `每格的 NUTS3 都属于其 NUTS2(违规 ${bad} 格)`);
 }
 // 电站:装机量级合理、状态都在白名单
 {
   const B = readJSON("wikidata/power.json").results.bindings;
   const st = new Map(); for (const b of B) { const id = b.item.value.split("/").pop(); if (!st.has(id)) st.set(id, new Set()); if (b.use) st.get(id).add(b.use.value.split("/").pop()); }
   const badUse = places.resources.filter((r) => [...(st.get(r.id) || [])].some((u) => !["Q55654238", "Q109551035"].includes(u)));
-  ok(badUse.length === 0, `收录电站均未标退役/关闭/在建(违规 ${badUse.length})`);
+  ok(badUse.length === 0, `收录电站的 P5817 状态只可能是在用/部分运行(违规 ${badUse.length})`);
+  const closed = new Set(B.filter((b) => b.end || b.closed || b.badType).map((b) => b.item.value.split("/").pop()));
+  const badClosed = places.resources.filter((r) => closed.has(r.id) || !r.name);
+  ok(badClosed.length === 0, `收录电站无关闭日期、解散日期、拟建/在建/退役类型,且都有名称(违规 ${badClosed.length})`);
   const big = places.resources.filter((r) => r.mw != null && (r.mw > 7000 || r.mw <= 0));
   ok(big.length === 0, `电站装机在 0–7000 MW 之间(越界 ${big.length}:${big.map((r) => r.name + " " + r.mw).join(";")})`);
 }

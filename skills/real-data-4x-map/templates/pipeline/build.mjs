@@ -99,8 +99,8 @@ function jobsOf(geo) {
 // ============ 2. 地区表 ============
 const n3 = G.n3, n2 = G.n2;
 const r2Index = new Map(n2.map((f, k) => [f.id, k]));
-// 分量全缺 → null(无数据);部分缺 → 用已有分量求和(面板显示时不会把「没报」当成 0)
-const sumOrNull = (...v) => (v.every((x) => x == null) ? null : round(v.reduce((s, x) => s + (x ?? 0), 0), 1));
+// 任一必需分量缺失 → null(无数据)。不拿部分分量冒充合计,也不把「没报」当成 0
+const sumOrNull = (...v) => (v.some((x) => x == null) ? null : round(v.reduce((s, x) => s + x, 0), 1));
 const yieldOf = (J, gdp) => ({
   food: J ? round(J.agri, 1) : null,
   production: J ? sumOrNull(J.industry, J.construction) : null,
@@ -202,7 +202,7 @@ for (const [k, cells] of cellsBy2) {
   const lat = cellLonLat(cells[0])[1];
   if (lc.bare != null && lc.bare >= 8 && lat < 44) assign(free.filter((i) => relief[i] < 2), lc.bare, (i) => nz(i, 70, 2), (i) => (terrain[i] = T.desert));
   // 森林 = 林地比例(山丘优先)
-  if (lc.wood != null) assign(cells.filter((i) => relief[i] < 2 && terrain[i] !== T.snow), lc.wood, (i) => nz(i, 60, 3) - relief[i] * 0.25, (i) => (feature[i] = F.woods));
+  if (lc.wood != null) { const ok = cells.filter((i) => relief[i] < 2 && terrain[i] !== T.snow); assign(ok, Math.min(100, (lc.wood * cells.length) / Math.max(1, ok.length)), (i) => nz(i, 60, 3) - relief[i] * 0.25, (i) => (feature[i] = F.woods)); }
   // 沼泽 = 湿地比例(只在平地)
   if (lc.wet != null && lc.wet >= 0.5) assign(cells.filter((i) => relief[i] === 0 && !feature[i]), lc.wet * 2, (i) => nz(i, 40, 4), (i) => (feature[i] = F.marsh));
 }
@@ -231,7 +231,10 @@ const order = G.countries.map((_, k) => k).sort((a, b) => adj[b].size - adj[a].s
 const colorOf = [];
 for (const k of order) { const used = new Set([...adj[k]].map((j) => colorOf[j])); colorOf[k] = PALETTE.findIndex((_, c) => !used.has(c)); if (colorOf[k] < 0) colorOf[k] = k % PALETTE.length; }
 // 「有数据」以实际有非迷雾格为准(乌克兰在 NUTS0 里有轮廓,但无 NUTS2/3)
-const hasData = new Set(); for (let i = 0; i < N; i++) if (G.water[i] === 0 && !G.foreign[i] && G.country[i] >= 0) hasData.add(G.country[i]);
+const statCntr = new Set([...regions3.filter((r) => r.pop != null || r.gdp != null).map((r) => r.cntr), ...regions2.filter((r) => r.gdp != null || r.unemp != null).map((r) => r.cntr)]);
+const hasData = new Set(); for (let i = 0; i < N; i++) if (G.water[i] === 0 && !G.foreign[i] && G.country[i] >= 0 && statCntr.has(G.countries[G.country[i]].code)) hasData.add(G.country[i]);
+// 输出的迷雾标记:NUTS 之外的陆地 + 有边界但无统计的国家
+const fogOut = G.foreign.map((f, i) => (f || (G.water[i] === 0 && G.country[i] >= 0 && !hasData.has(G.country[i])) ? 1 : 0));
 const countries = G.countries.map((c, k) => ({ code: c.code, name: COUNTRY_ZH[c.code] || neZh.get(c.code) || c.ne || c.code, nuts: hasData.has(k), color: hasData.has(k) ? PALETTE[colorOf[k]] : "#77756c" }));
 
 // ============ 5. 城市 ============
@@ -273,8 +276,11 @@ if (cityRows) {
   const by = new Map();
   for (const b of cityRows) {
     const id = qid(b.item);
-    const o = by.get(id) || { id, pop: 0, sl: +(b.sl?.value || 0), coord: pt(b), zh: zhName(b), en: b.n_en?.value || null, country: qid(b.country), capitalOf: new Set() };
-    o.pop = Math.max(o.pop, +b.pop.value);
+    const o = by.get(id) || { id, pop: 0, popPick: null, sl: +(b.sl?.value || 0), coord: pt(b), zh: zhName(b), en: b.n_en?.value || null, country: qid(b.country), capitalOf: new Set() };
+    // 人口:优先 preferred rank,再按统计日期取最新;无日期的排最后
+    const cand = { pop: +b.pop.value, pref: b.rank?.value?.endsWith("PreferredRank") ? 1 : 0, date: b.date?.value || "" };
+    const better = (a, c) => !c || a.pref > c.pref || (a.pref === c.pref && a.date > c.date);
+    if (better(cand, o.popPick)) { o.popPick = cand; o.pop = cand.pop; o.popYear = cand.date ? +cand.date.slice(0, 4) : null; }
     if (b.capital) o.capitalOf.add(qid(b.capital));
     if (!o.zh) o.zh = zhName(b);
     by.set(id, o);
@@ -289,6 +295,8 @@ if (cityRows) {
     if (r3 < 0) continue; // 只要 NUTS 覆盖内的城市
     const cell = grid.locate(x, y);
     if (!c.zh && !c.en) continue; // 无任何名称的条目(只有 Q 号)不要
+    if (c.pop < 100000) continue; // 按选定的那条人口(不是最大值)判断是否 ≥10 万
+    if (!statCntr.has(n3[r3].cntr)) continue; // 有边界无统计的国家(科索沃、波黑)不放城市
     kept.push({ ...c, x, y, r3, cell });
   }
   cities = kept.sort((a, b) => b.pop - a.pop); // 旗标按人口从大到小排,大城市优先占位
@@ -301,7 +309,8 @@ const capitalOK = (c) => c.capitalOf.has(c.country) || c.capitalOf.has(CAPITAL_A
 // 全图平均占比:分子分母都只取该行业有值的地区,否则缺报地区的总就业会压低基准、抬高所有区位商
 const avgShare = Object.fromEntries(["agri", "industry", "construction", "info", "finance", "realestate", "professional", "arts", "trade"].map((k) => {
   let num = 0, den = 0;
-  for (const r of regions3) if (r.jobs?.[k] != null) { num += r.jobs[k]; den += r.jobs.total; }
+  const code = { info: "J", finance: "K", professional: "M_N", arts: "R-U" }[k];
+  for (const r of regions3) if (r.jobs?.[k] != null && !(code && r.jobs_estimated.includes(code))) { num += r.jobs[k]; den += r.jobs.total; }
   return [k, den ? num / den : NaN];
 }));
 const lq = (r, keys) => { if (!r.jobs) return null; const v = keys.reduce((s, k) => s + (r.jobs[k] ?? NaN), 0); const a = keys.reduce((s, k) => s + avgShare[k], 0); return isFinite(v) ? v / r.jobs.total / a : null; };
@@ -317,14 +326,14 @@ cities = cities.map((c, rank) => {
   const est = new Set(r.jobs_estimated);
   if (r2?.rd_pct >= DZ.campus.min_rd || (lqSci >= DZ.campus.min_lq && !est.has("J") && !est.has("M_N"))) add("campus", r2?.rd_pct >= DZ.campus.min_rd ? `所在大区研发投入占 GDP ${r2.rd_pct}%(${r2.rd_year})` : `信息通信+专业科研就业区位商 ${lqSci.toFixed(2)}`);
   if (lqInd >= DZ.industrial.min_lq) add("industrial", `工业+建筑就业区位商 ${lqInd.toFixed(2)}`);
-  if (lqFin >= DZ.commercial.min_lq && !est.has("K")) add("commercial", `金融+地产+专业服务就业区位商 ${lqFin.toFixed(2)}`);
+  if (lqFin >= DZ.commercial.min_lq && !est.has("K") && !est.has("M_N")) add("commercial", `金融+地产+专业服务就业区位商 ${lqFin.toFixed(2)}`);
   if (lqArt >= DZ.theater.min_lq && !est.has("R-U")) add("theater", `艺术娱乐等服务就业区位商 ${lqArt.toFixed(2)}`);
   if (r2?.nights_pc >= DZ.entertainment.min_nights_pc) add("entertainment", `所在大区每千居民游客过夜 ${Math.round(r2.nights_pc)} 晚(${r2.nights_year})`);
   if (c.cell >= 0 && grid.neighbors(c.cell).concat([c.cell]).some((j) => j >= 0 && water[j] === 2)) add("harbor", "城市所在格邻接海岸");
   if (r.jobs && lq(r, ["agri"]) >= DZ.farm.min_lq) add("farm", `农林渔就业区位商 ${lq(r, ["agri"]).toFixed(2)}`);
   return {
     id: c.id, name: c.zh || c.en || c.id, name_en: c.en, zh: !!c.zh, cntr: r.cntr, x: round(c.x, 1), y: round(c.y, 1), cell: c.cell,
-    pop: c.pop, capital: capitalOK(c), r3: c.r3, primary, districts: d, rank,
+    pop: c.pop, pop_year: c.popYear ?? null, capital: capitalOK(c), r3: c.r3, primary, districts: d, rank,
   };
 });
 log(`cities: ${cities.length} (zh names ${cities.filter((c) => c.zh).length}, capitals ${cities.filter((c) => c.capital).length})`);
@@ -370,18 +379,20 @@ if (pw) {
     const o = by.get(id) || { id, kind: qid(b.kind) === "Q134447" ? "nuclear" : "hydro", coord: pt(b), mw: null, uses: new Set(), zh: zhName(b), en: b.n_en?.value };
     if (b.watts) o.mw = Math.max(o.mw ?? 0, +b.watts.value / 1e6); // 归一化数量(瓦)→ 兆瓦
     if (b.use) o.uses.add(qid(b.use));
+    if (b.end || b.closed || b.badType) o.closedSignal = true;
     by.set(id, o);
   }
   // 状态白名单:无状态,或「在用」Q55654238 /「部分运行」Q109551035;退役、关闭、在建、规划、取消、停运一律排除
   const OK_USE = new Set(["Q55654238", "Q109551035"]);
   for (const o of by.values()) {
     if ([...o.uses].some((u) => !OK_USE.has(u))) continue;
+    if (o.closedSignal || !(o.zh || o.en)) continue;
     if (o.kind === "hydro" && !(o.mw >= 300)) continue;
     if (o.kind === "nuclear" && o.mw != null && o.mw < 100) continue;
     const [x, y] = toGrid(...o.coord);
     const cell = grid.locate(x, y);
     if (cell < 0 || G.foreign[cell] || (G.nuts2[cell] < 0 && water[cell] === 0)) continue;
-    resources.push({ id: o.id, kind: o.kind, name: o.zh || o.en, name_en: o.en, mw: o.mw, x: round(x, 1), y: round(y, 1), cell });
+    resources.push({ id: o.id, kind: o.kind, name: o.zh || o.en, name_en: o.en, mw: o.mw, status: o.uses.size ? "在用" : "未标注", x: round(x, 1), y: round(y, 1), cell });
   }
 }
 log(`wonders ${wonders.length} (natural ${wonders.filter((w) => w.natural).length}), resources ${resources.length} (nuclear ${resources.filter((r) => r.kind === "nuclear").length})`);
@@ -410,7 +421,7 @@ const world = {
   projection: G.projection,
   cells: {
     water: Array.from(water), terrain: Array.from(terrain), relief: Array.from(relief), feature: Array.from(feature),
-    elev: Array.from(elev), r3: G.nuts3, r2: G.nuts2, country: G.country, fog: G.foreign,
+    elev: Array.from(elev), r3: G.nuts3, r2: G.nuts2, country: G.country, fog: fogOut,
   },
   tables: { water: WATER, terrain: TERRAIN, relief: RELIEF, feature: FEATURES },
   countries, rivers, skipped: G.skipped, rescued: G.rescued,

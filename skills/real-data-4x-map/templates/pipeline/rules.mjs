@@ -14,7 +14,7 @@ export const COUNTRY_ZH = {
 
 export const YIELDS = [
   { key: "food", label: "粮食", icon: "🌾", color: "#8bc34a", unit: "千人", desc: "农业、林业、渔业的就业人数(按工作地,Eurostat nama_10r_3empers 的 NACE A)。" },
-  { key: "production", label: "生产力", icon: "⚙️", color: "#e08a3c", unit: "千人", desc: "工业(采矿、制造、能源、水务,NACE B–E)加建筑业(NACE F)的就业人数。" },
+  { key: "production", label: "生产力", icon: "⚙️", color: "#e08a3c", unit: "千人", desc: "工业(采矿、制造、能源、水务,NACE B–E)加建筑业(NACE F)的就业人数;两者任一缺报则留空。" },
   { key: "gold", label: "金币", icon: "💰", color: "#f2c94c", unit: "百万欧元", desc: "地区生产总值,当年价(Eurostat nama_10r_3gdp,MIO_EUR)。" },
   { key: "science", label: "科技", icon: "🔬", color: "#4fa3e0", unit: "千人", desc: "信息通信(NACE J)加专业、科学、技术及行政服务(NACE M–N)的就业人数。地区未单独报告时按「父类就业 × 本国同类比例」估算,面板会标「估」。" },
   { key: "culture", label: "文化", icon: "🎭", color: "#c27bd6", unit: "千人", desc: "艺术、娱乐、休闲及其他服务(NACE R–U)的就业人数;未单独报告时同样按比例估算。" },
@@ -34,16 +34,16 @@ export const DISTRICTS = [
 
 export const WATER = [
   { id: 0, key: "land", name: "陆地", rule: "格心与 6 个采样点中至少 4 个落在 NUTS 区或 Natural Earth 国家轮廓内。" },
-  { id: 1, key: "ocean", name: "深海", color: "#1d4a6e", rule: "不与陆地相邻,且海深超过 200 米(或离岸 4 格以外未采样)。" },
-  { id: 2, key: "coast", name: "浅海", color: "#3283a8", rule: "与陆地相邻,或海深不足 200 米(ETOPO1)。" },
-  { id: 3, key: "lake", name: "湖泊", color: "#4a9cc4", rule: "7 个采样点中至少 4 个落在 Natural Earth 1:5000 万湖泊面内。" },
+  { id: 1, key: "ocean", name: "深海", color: "#173a5e", rule: "不与陆地相邻,且海深超过 200 米(或离岸 4 格以外未采样)。" },
+  { id: 2, key: "coast", name: "浅海", color: "#3c86ae", rule: "与陆地相邻,或海深不足 200 米(ETOPO1)。" },
+  { id: 3, key: "lake", name: "湖泊", color: "#4f9fcc", rule: "7 个采样点中至少 4 个落在 Natural Earth 1:5000 万湖泊面内。" },
 ];
 export const TERRAIN = [
-  { id: 0, key: "grassland", name: "草原", color: "#6b9a3c", rule: "默认底色;大区内非耕地的部分。" },
-  { id: 1, key: "plains", name: "平原", color: "#b3a24e", rule: "大区内按「耕地 ÷(耕地+草地+灌丛)」的比例分配(LUCAS 土地覆盖),地势平处优先。" },
-  { id: 2, key: "desert", name: "荒漠", color: "#d8c283", rule: "北纬 44° 以南、裸地占比 ≥ 8% 的大区,按裸地比例分配。" },
-  { id: 3, key: "tundra", name: "冻土", color: "#8d9474", rule: "北纬 67° 以北;或北纬 62° 以北且海拔 ≥ 500 米;或冰岛;或海拔 ≥ 1900 米。" },
-  { id: 4, key: "snow", name: "雪地", color: "#e6ecef", rule: "格心落在 Natural Earth 冰川面内。" },
+  { id: 0, key: "grassland", name: "草原", color: "#7f9a52", rule: "默认底色;大区内非耕地的部分。" },
+  { id: 1, key: "plains", name: "平原", color: "#bfae6c", rule: "大区内按「耕地 ÷(耕地+草地+灌丛)」的比例分配(LUCAS 土地覆盖),地势平处优先。" },
+  { id: 2, key: "desert", name: "荒漠", color: "#d8c38e", rule: "北纬 44° 以南、裸地占比 ≥ 8% 的大区,按裸地比例分配。" },
+  { id: 3, key: "tundra", name: "冻土", color: "#9b9d86", rule: "北纬 67° 以北;或北纬 62° 以北且海拔 ≥ 500 米;或冰岛;或海拔 ≥ 1900 米。" },
+  { id: 4, key: "snow", name: "雪地", color: "#eef1f2", rule: "格心落在 Natural Earth 冰川面内。" },
 ];
 export const RELIEF = [
   { id: 0, key: "flat", name: "平地", rule: "格内 4 点与相邻格心海拔的标准差 < 110 米。" },

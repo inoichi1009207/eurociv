@@ -46,20 +46,17 @@ export const SOURCES = [
   },
   {
     id: "etopo", group: "elev",
-    title: "ETOPO1 全球地形与海深(1 角分,经 ERDDAP 以 0.1° 抽样)",
-    publisher: "美国国家海洋和大气管理局 NOAA NCEI", homepage: "https://www.ncei.noaa.gov/products/etopo-global-relief-model",
-    license: "美国政府作品,公有领域",
-    used_for: "海拔、起伏(丘陵/山地)、浅海与深海",
-    files: [{
-      url: `https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo180.csv?altitude%5B(${BBOX.south}):3:(${BBOX.north})%5D%5B(${BBOX.west}):3:(${BBOX.east})%5D`,
-      file: "etopo/etopo_0p05.csv", timeoutMs: 300000,
-    }],
+    title: "ETOPO1 全球地形与海深(经 OpenTopoData 公共 API 按格采样)",
+    publisher: "美国国家海洋和大气管理局 NOAA NCEI;OpenTopoData 提供接口", homepage: "https://www.opentopodata.org/datasets/etopo1/",
+    license: "ETOPO1 为美国政府作品,公有领域",
+    used_for: "海拔、起伏(丘陵/山地)、浅海与深海。采样由 pipeline/elev.mjs 完成:陆地格 4 点、迷雾格 1 点、近岸水格 1 点",
+    files: [],
   },
   {
     id: "eurostat", group: "stat",
     title: "欧盟统计局地区统计(NUTS2 / NUTS3)",
     publisher: "欧盟统计局 Eurostat", homepage: "https://ec.europa.eu/eurostat/web/regions",
-    license: "CC BY 4.0(欧盟委员会再利用政策 2011/833/EU),注明出处即可",
+    license: "CC BY 4.0(欧盟委员会再利用政策 2011/833/EU):须注明来源;本图对数据做了加工(选年份、估算细分行业、映射为游戏术语),Eurostat 对加工后的数据不承担责任",
     used_for: "人口、面积、GDP、分行业就业、研发、旅游、失业、高等教育、林地",
     files: [
       es("nama_10r_3gdp", "unit=MIO_EUR&unit=PPS_HAB_EU27_2020&sinceTimePeriod=2018"),
@@ -82,11 +79,12 @@ export const SOURCES = [
     used_for: "城市位置与人口、中文名;世界遗产 → 奇观;核电站/水电站 → 战略资源",
     files: [
       // 类型:通用「城市」类 + 各国常见的城市级行政单位(马德里、里斯本、布达佩斯只挂了本国的市镇类型)
-      wd("cities", `SELECT ?item ?coord ?pop ?country ?capital ?sl ?n_zh ?n_en WHERE {
+      wd("cities", `SELECT ?item ?coord ?pop ?rank ?date ?country ?capital ?sl ?n_zh ?n_en WHERE {
         VALUES ?type { wd:Q515 wd:Q1549591 wd:Q5119 wd:Q1637706 wd:Q200250 wd:Q22865 wd:Q174844 wd:Q2264924 wd:Q108178728
           wd:Q2074737 wd:Q15647906 wd:Q13218690 wd:Q747074 wd:Q2716259 wd:Q484170 wd:Q42744322 wd:Q2039348 wd:Q493522 wd:Q925381 }
         ?item wdt:P31 ?type .
-        ?item wdt:P1082 ?pop . FILTER(?pop >= 100000)
+        ?item p:P1082 ?st . ?st ps:P1082 ?pop ; wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank && ?pop >= 50000)
+        OPTIONAL { ?st pq:P585 ?date . }
         ?item wikibase:sitelinks ?sl .
         ${box("?item")}
         OPTIONAL { ?item wdt:P17 ?country . }
@@ -100,11 +98,14 @@ export const SOURCES = [
         OPTIONAL { ?item wdt:P2614 ?crit . }
         ${labels("?item", "n")}
       }`),
-      wd("power", `SELECT ?item ?coord ?kind ?watts ?use ?n_zh ?n_en WHERE {
+      wd("power", `SELECT ?item ?coord ?kind ?watts ?use ?end ?closed ?badType ?n_zh ?n_en WHERE {
         VALUES ?kind { wd:Q134447 wd:Q15911738 }
         ?item wdt:P31 ?kind .
         ${box("?item")}
-        OPTIONAL { ?item p:P2109/psn:P2109/wikibase:quantityAmount ?watts . } # 装机,归一化为瓦(避免 kW/MW 单位混用)
+        OPTIONAL { ?item p:P2109/psn:P2109/wikibase:quantityAmount ?watts . }
+        OPTIONAL { ?item wdt:P576 ?end . }
+        OPTIONAL { ?item wdt:P3999 ?closed . }
+        OPTIONAL { ?item wdt:P31 ?badType . FILTER(?badType IN (wd:Q811683, wd:Q12377751, wd:Q11639308, wd:Q170584, wd:Q2112558, wd:Q30108381, wd:Q63065035, wd:Q104664889, wd:Q56651571)) } # 装机,归一化为瓦(避免 kW/MW 单位混用)
         OPTIONAL { ?item wdt:P5817 ?use . }
         ${labels("?item", "n")}
       }`),

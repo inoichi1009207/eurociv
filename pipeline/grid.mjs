@@ -96,7 +96,9 @@ for (let i = 0; i < N; i++) {
   const neVotes = [...votesNe.values()].reduce((s, v) => s + v, 0);
   if (nutsVotes >= neVotes && votes2.size) {
     own2[i] = top(votes2)[0];
-    if (votes3.size) own3[i] = top(votes3)[0];
+    // NUTS3 只在所选 NUTS2 的下属地区里取多数票,避免一格的大区与地区分属两国
+    const kids = new Map([...votes3].filter(([k]) => n3[k].id.startsWith(n2[own2[i]].id)));
+    if (kids.size) own3[i] = top(kids)[0];
     country[i] = n2[own2[i]].cntr;
   } else {
     foreign[i] = 1;
@@ -117,7 +119,9 @@ n3.forEach((f, k) => {
   const i = grid.locate(mx - X0, Y1 - my);
   if (i < 0 || water[i] !== 1) return;
   water[i] = 0; own3[i] = k; country[i] = f.cntr;
-  own2[i] = n2.findIndex((g) => g.id === f.id.slice(0, 4));
+  const k2 = n2.findIndex((g) => g.id === f.id.slice(0, 4));
+  if (k2 < 0) { water[i] = 1; own3[i] = -1; country[i] = null; return; } // 所属大区不在图上(如扬马延):不补
+  own2[i] = k2;
   rescued.push(f.id);
 });
 
