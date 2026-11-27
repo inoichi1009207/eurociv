@@ -2,6 +2,8 @@
 
 把真实的欧洲画成一张 4X 策略游戏风格的六边形地图。数据全部来自公开数据源，用游戏的语言重新讲一遍：GDP 是**金币**，农业、工业、科技、文艺的就业人数是**粮食、生产力、科技、文化**，城市凭真实的产业结构获得**区域**（学院、工业区、商业中心……），世界遗产是**奇观**，核电站和大型水电站是**战略资源**。
 
+**在线地图:https://inoichi1009207.github.io/eurociv/**
+
 ![全图](docs/overview.png)
 
 | 城市面板（慕尼黑） | 透镜：人均 GDP（购买力，欧盟=100） |
@@ -93,7 +95,7 @@ node pipeline/check.mjs        # 5 核对(退出码 0 才算通过)
 安装方式一（作为插件）：
 
 ```text
-/plugin marketplace add <本仓库的 GitHub 地址>
+/plugin marketplace add inoichi1009207/eurociv
 /plugin install real-data-4x-map@eurociv
 ```
 
