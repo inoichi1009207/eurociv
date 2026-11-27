@@ -38,5 +38,5 @@
 
 ## 截图核对
 
-- 无头 Edge/Chrome(`--headless=new`)有约 500px 的最小窗口宽度:`--window-size=390,844` 实际按 ~500px 排版、再裁成 390px,
-  看起来像「右侧被截断」。检查手机布局用 600px 宽(已低于 720px 断点)截图,不要据 390px 截图改 CSS。
+- 无头 Edge(`--headless=new`)有最小窗口宽度:实测 `--window-size=390,844` 时页面 `innerWidth=504`,截图却裁成 390px,
+  看起来像「右侧被截断」(`--window-size=600` 时 `innerWidth=570`)。检查手机布局用 600px 宽(已低于 720px 断点)截图,不要据 390px 截图改 CSS。

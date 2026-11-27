@@ -99,11 +99,13 @@ function jobsOf(geo) {
 // ============ 2. 地区表 ============
 const n3 = G.n3, n2 = G.n2;
 const r2Index = new Map(n2.map((f, k) => [f.id, k]));
+// 分量全缺 → null(无数据);部分缺 → 用已有分量求和(面板显示时不会把「没报」当成 0)
+const sumOrNull = (...v) => (v.every((x) => x == null) ? null : round(v.reduce((s, x) => s + (x ?? 0), 0), 1));
 const yieldOf = (J, gdp) => ({
   food: J ? round(J.agri, 1) : null,
-  production: J ? round((J.industry ?? 0) + (J.construction ?? 0), 1) : null,
+  production: J ? sumOrNull(J.industry, J.construction) : null,
   gold: gdp ?? null,
-  science: J ? round((J.info ?? 0) + (J.professional ?? 0), 1) : null,
+  science: J ? sumOrNull(J.info, J.professional) : null,
   culture: J ? round(J.arts, 1) : null,
 });
 const regions3 = n3.map((f) => {
@@ -246,11 +248,18 @@ const n3polys = (() => {
   return n3.map((f) => ({ polys: projectGeometry(byId.get(f.id).geometry, (lon, lat) => toGrid(lon, lat)) }));
 })();
 const idx3raw = makeIndex(n3polys, 40);
+// 「迷雾国家」= 没有任何 NUTS2/3 地区的国家(乌克兰在 NUTS0 有轮廓,但没有下级地区,也算迷雾)
+const dataCntr = new Set([...G.n3.map((f) => f.cntr), ...G.n2.map((f) => f.cntr)]);
+const fogCodes = new Set(G.countries.map((c) => c.code).filter((c) => !dataCntr.has(c)));
+const neFog = makeIndex(readJSON("ne/ne_50m_admin_0_countries.geojson").features
+  .filter((f) => { let c = f.properties.ISO_A2_EH || f.properties.ISO_A2; if (c === "GB") c = "UK"; return fogCodes.has(c); })
+  .map((f) => ({ polys: projectGeometry(f.geometry, (lon, lat) => toGrid(lon, lat)) })), 50);
 // 简化边界有缝(梵蒂冈的洞、博斯普鲁斯海峡、海岸线):落空时向外环状搜索 3–15 km
 const idx3 = {
   find(x, y) {
     const k = idx3raw.find(x, y);
     if (k >= 0) return k;
+    if (neFog.find(x, y) >= 0) return -1; // 在非 NUTS 国家境内:不往邻国里塞
     for (const rad of [3, 6, 10, 15]) for (let a = 0; a < 12; a++) {
       const kk = idx3raw.find(x + rad * Math.cos((a * Math.PI) / 6), y + rad * Math.sin((a * Math.PI) / 6));
       if (kk >= 0) return kk;
@@ -289,9 +298,12 @@ if (cityRows) {
 const CAPITAL_ALIAS = { Q55: "Q29999" };
 const capitalOK = (c) => c.capitalOf.has(c.country) || c.capitalOf.has(CAPITAL_ALIAS[c.country]);
 // 区位商(相对全图平均)
-const sumBy = (key) => regions3.reduce((s, r) => s + (r.jobs?.[key] ?? 0), 0);
-const totalJobs = sumBy("total");
-const avgShare = Object.fromEntries(["agri", "industry", "construction", "info", "finance", "realestate", "professional", "arts", "trade"].map((k) => [k, sumBy(k) / totalJobs]));
+// 全图平均占比:分子分母都只取该行业有值的地区,否则缺报地区的总就业会压低基准、抬高所有区位商
+const avgShare = Object.fromEntries(["agri", "industry", "construction", "info", "finance", "realestate", "professional", "arts", "trade"].map((k) => {
+  let num = 0, den = 0;
+  for (const r of regions3) if (r.jobs?.[k] != null) { num += r.jobs[k]; den += r.jobs.total; }
+  return [k, den ? num / den : NaN];
+}));
 const lq = (r, keys) => { if (!r.jobs) return null; const v = keys.reduce((s, k) => s + (r.jobs[k] ?? NaN), 0); const a = keys.reduce((s, k) => s + avgShare[k], 0); return isFinite(v) ? v / r.jobs.total / a : null; };
 const DZ = Object.fromEntries(DISTRICTS.map((d) => [d.key, d]));
 const seenR3 = new Set();
@@ -356,13 +368,14 @@ if (pw) {
   for (const b of pw) {
     const id = qid(b.item);
     const o = by.get(id) || { id, kind: qid(b.kind) === "Q134447" ? "nuclear" : "hydro", coord: pt(b), mw: null, uses: new Set(), zh: zhName(b), en: b.n_en?.value };
-    if (b.mw) o.mw = Math.max(o.mw ?? 0, +b.mw.value);
+    if (b.watts) o.mw = Math.max(o.mw ?? 0, +b.watts.value / 1e6); // 归一化数量(瓦)→ 兆瓦
     if (b.use) o.uses.add(qid(b.use));
     by.set(id, o);
   }
-  const CLOSED = new Set(["Q75291252", "Q12377751", "Q109551565", "Q56556915", "Q30108381"]); // 已关闭/拆除/废弃/在建等状态
+  // 状态白名单:无状态,或「在用」Q55654238 /「部分运行」Q109551035;退役、关闭、在建、规划、取消、停运一律排除
+  const OK_USE = new Set(["Q55654238", "Q109551035"]);
   for (const o of by.values()) {
-    if ([...o.uses].some((u) => CLOSED.has(u))) continue;
+    if ([...o.uses].some((u) => !OK_USE.has(u))) continue;
     if (o.kind === "hydro" && !(o.mw >= 300)) continue;
     if (o.kind === "nuclear" && o.mw != null && o.mw < 100) continue;
     const [x, y] = toGrid(...o.coord);

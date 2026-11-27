@@ -100,11 +100,11 @@ export const SOURCES = [
         OPTIONAL { ?item wdt:P2614 ?crit . }
         ${labels("?item", "n")}
       }`),
-      wd("power", `SELECT ?item ?coord ?kind ?mw ?use ?n_zh ?n_en WHERE {
+      wd("power", `SELECT ?item ?coord ?kind ?watts ?use ?n_zh ?n_en WHERE {
         VALUES ?kind { wd:Q134447 wd:Q15911738 }
         ?item wdt:P31 ?kind .
         ${box("?item")}
-        OPTIONAL { ?item wdt:P2109 ?mw . }
+        OPTIONAL { ?item p:P2109/psn:P2109/wikibase:quantityAmount ?watts . } # 装机,归一化为瓦(避免 kW/MW 单位混用)
         OPTIONAL { ?item wdt:P5817 ?use . }
         ${labels("?item", "n")}
       }`),

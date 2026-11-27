@@ -48,8 +48,25 @@ reconcile(flatten(readJSON("eurostat/nama_10r_3gdp.json")).filter((r) => r.unit 
 reconcile(flatten(readJSON("eurostat/demo_r_pjanaggr3.json")), "人口对账");
 // 地图里的数与原始数据逐条一致(抽 50 个地区)
 const rawGdp = new Map(); for (const r of flatten(readJSON("eurostat/nama_10r_3gdp.json"))) if (r.unit === "MIO_EUR") rawGdp.set(`${r.geo}|${r.time}`, r.value);
-const sample = r3.filter((r) => r.gdp != null).filter((_, k) => k % 23 === 0).slice(0, 50);
-ok(sample.every((r) => Math.abs(rawGdp.get(`${r.id}|${r.gdp_year}`) - r.gdp) <= 1), `抽查 ${sample.length} 个地区的 GDP 与原始数据一致(误差 ≤ 1 百万欧元,取整所致)`);
+// 全量比对(不抽样):每个地区的人口、GDP、总就业都应等于原始数据里该地区「最新年份」的值
+const latestRaw = (rows) => { const m = new Map(); for (const r of rows) { const c = m.get(r.geo); if (!c || +r.time > c.year) m.set(r.geo, { year: +r.time, value: r.value }); } return m; };
+const lGdp = latestRaw(flatten(readJSON("eurostat/nama_10r_3gdp.json")).filter((r) => r.unit === "MIO_EUR"));
+const lPop = latestRaw(flatten(readJSON("eurostat/demo_r_pjanaggr3.json")));
+const lEmp = latestRaw(flatten(readJSON("eurostat/nama_10r_3empers.json")).filter((r) => r.wstatus === "EMP" && r.nace_r2 === "TOTAL"));
+const mism = (m, f, fy, tol) => r3.filter((r) => { const x = m.get(r.id); return x ? !(r[f] != null && Math.abs(r[f] - x.value) <= tol && r[fy] === x.year) : r[f] != null; });
+for (const [m, f, fy, tol, label] of [[lGdp, "gdp", "gdp_year", 1, "GDP"], [lPop, "pop", "pop_year", 0, "人口"]]) {
+  const bad = mism(m, f, fy, tol);
+  ok(bad.length === 0, `全部 ${r3.length} 个地区的${label}与原始最新年份值一致(不一致 ${bad.length}:${bad.slice(0, 5).map((r) => r.id).join(",")})`);
+}
+const badEmp = r3.filter((r) => { const x = lEmp.get(r.id); return x ? !(r.jobs && Math.abs(r.jobs.total - x.value) < 1e-6 && r.jobs_year === x.year) : r.jobs != null; });
+ok(badEmp.length === 0, `全部地区总就业与原始一致(不一致 ${badEmp.length})`);
+// 产出语义:分量全缺必须是 null,不得显示 0;有分量时等于分量之和
+const yBad = r3.filter((r) => {
+  if (!r.jobs) return false;
+  const chk = (y, parts) => { const v = parts.map((k) => r.jobs[k]); if (v.every((x) => x == null)) return y !== null; return Math.abs(y - v.reduce((s, x) => s + (x ?? 0), 0)) > 0.06; };
+  return chk(r.yields.production, ["industry", "construction"]) || chk(r.yields.science, ["info", "professional"]) || chk(r.yields.food, ["agri"]) || chk(r.yields.culture, ["arts"]);
+});
+ok(yBad.length === 0, `产出与就业分量一致、缺数据为空不为 0(违规 ${yBad.length}:${yBad.slice(0, 5).map((r) => r.id).join(",")})`);
 const skippedPop = flatten(readJSON("eurostat/demo_r_pjanaggr3.json")).filter((r) => world.skipped.some((s) => s.id === r.geo) && r.time === "2025").reduce((s, r) => s + r.value, 0);
 console.log(`信息:略去的远方地区 2025 年人口合计 ${Math.round(skippedPop / 1e4)} 万`);
 
@@ -58,6 +75,66 @@ const expect = [["巴黎", "FR101"], ["柏林", "DE300"], ["罗马", "ITI43"], [
 for (const [name, id] of expect) {
   const c = cities.find((x) => x.name === name);
   ok(c && r3[c.r3].id === id && c.capital, `${name} → ${c ? r3[c.r3].id : "未找到"}${c?.capital ? " 首都" : ""}(预期 ${id} 首都)`);
+}
+// 网格归属:随机 400 个有数据陆地格,用原始边界独立做格心点查,与 cells.r3 一致率应 ≥ 90%(其余是边境格多数票的正常差异)
+{
+  const { makeLAEA, makeHexGrid, projectGeometry, makeIndex } = await import("./lib/geo.mjs");
+  const G = JSON.parse(fs.readFileSync(path.join(RAW, "derived/grid.json"), "utf8"));
+  const grid = makeHexGrid({ r: G.hexR, cols: G.cols, rows: G.rows });
+  const proj = makeLAEA(10, 52);
+  const gj = readJSON("gisco/nuts2024_l3.geojson");
+  const feats = gj.features.map((f) => ({ id: f.properties.NUTS_ID, polys: projectGeometry(f.geometry, (lon, lat) => proj.forward(lon, lat)) }));
+  const idx = makeIndex(feats, 40);
+  const cand = []; for (let i = 0; i < n; i++) if (world.cells.water[i] === 0 && !world.cells.fog[i] && world.cells.r3[i] >= 0) cand.push(i);
+  let seed = 7, same = 0, tried = 0;
+  for (let k = 0; k < 400; k++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const i = cand[seed % cand.length];
+    const [cx, cy] = grid.center(i % G.cols, (i / G.cols) | 0);
+    const f = idx.find(G.origin.X0 + cx, G.origin.Y1 - cy);
+    if (f < 0) continue; tried++;
+    if (feats[f].id === r3[world.cells.r3[i]].id) same++;
+  }
+  ok(tried > 300 && same / tried >= 0.9, `格子归属独立复算:${same}/${tried} 一致`);
+}
+// 区域判定复算:用独立算的全图平均占比重算区位商,每条区域理由都应真的过阈值
+{
+  const keys = { industrial: ["industry", "construction"], commercial: ["finance", "realestate", "professional"], theater: ["arts"], farm: ["agri"] };
+  const avg = {}; for (const k of ["agri", "industry", "construction", "finance", "realestate", "professional", "arts"]) { let a = 0, d = 0; for (const r of r3) if (r.jobs?.[k] != null) { a += r.jobs[k]; d += r.jobs.total; } avg[k] = a / d; }
+  const th = Object.fromEntries(meta.districts.map((d) => [d.key, d]));
+  const bad = [];
+  for (const c of cities) for (const d of c.districts) {
+    const r = r3[c.r3];
+    if (keys[d.key]) {
+      const v = keys[d.key].reduce((s, k) => s + (r.jobs?.[k] ?? NaN), 0) / r.jobs.total / keys[d.key].reduce((s, k) => s + avg[k], 0);
+      if (!(v >= th[d.key].min_lq - 1e-9)) bad.push(`${c.name}:${d.key}`);
+    }
+    if (d.key === "entertainment" && !(regions.r2[r.r2]?.nights_pc >= th.entertainment.min_nights_pc)) bad.push(`${c.name}:entertainment`);
+  }
+  ok(bad.length === 0, `区域判定复算全部过阈值(违规 ${bad.length}:${bad.slice(0, 5).join(",")})`);
+}
+// 电站:装机量级合理、状态都在白名单
+{
+  const B = readJSON("wikidata/power.json").results.bindings;
+  const st = new Map(); for (const b of B) { const id = b.item.value.split("/").pop(); if (!st.has(id)) st.set(id, new Set()); if (b.use) st.get(id).add(b.use.value.split("/").pop()); }
+  const badUse = places.resources.filter((r) => [...(st.get(r.id) || [])].some((u) => !["Q55654238", "Q109551035"].includes(u)));
+  ok(badUse.length === 0, `收录电站均未标退役/关闭/在建(违规 ${badUse.length})`);
+  const big = places.resources.filter((r) => r.mw != null && (r.mw > 7000 || r.mw <= 0));
+  ok(big.length === 0, `电站装机在 0–7000 MW 之间(越界 ${big.length}:${big.map((r) => r.name + " " + r.mw).join(";")})`);
+}
+// 城市不应来自非 NUTS 国家:城市坐标若落在 Natural Earth 的迷雾国家(白俄罗斯、叙利亚、伊拉克等)轮廓里即违规
+{
+  const { makeLAEA, projectGeometry, makeIndex } = await import("./lib/geo.mjs");
+  const G = JSON.parse(fs.readFileSync(path.join(RAW, "derived/grid.json"), "utf8"));
+  const proj = makeLAEA(10, 52);
+  const toGrid = (lon, lat) => { const [x, y] = proj.forward(lon, lat); return [x - G.origin.X0, G.origin.Y1 - y]; };
+  const fog = new Set(world.countries.filter((c) => !c.nuts).map((c) => c.code));
+  const feats = readJSON("ne/ne_50m_admin_0_countries.geojson").features
+    .filter((f) => { let c = f.properties.ISO_A2_EH || f.properties.ISO_A2; if (c === "GB") c = "UK"; return fog.has(c); })
+    .map((f) => ({ name: f.properties.NAME, polys: projectGeometry(f.geometry, toGrid) }));
+  const idx = makeIndex(feats, 50);
+  const bad = cities.filter((c) => idx.find(c.x, c.y) >= 0);
+  ok(bad.length === 0, `无境外城市被归入 NUTS 国家(违规 ${bad.length}:${bad.map((c) => c.name + "@" + feats[idx.find(c.x, c.y)].name).join(",")})`);
 }
 const campus = cities.filter((c) => c.districts.some((d) => d.key === "campus")).map((c) => c.name);
 console.log(`学院城市示例: ${campus.slice(0, 12).join("、")}`);
